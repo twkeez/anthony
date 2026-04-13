@@ -1,0 +1,2 @@
+client_name,internal_crm_id,service_ppc,service_seo,monthly_ad_budget,target_cpa,google_ads_id,ga4_property_id,search_console_url,tag_manager_id,gbp_location_id,email_domain,basecamp_project_id,basecamp_email
+Acme Dental,CRM-ACME-001,true,true,12000,45,1234567890,987654321,https://search.google.com/search-console,GTM-XXXXXX,,acmedental.com,11111111,integrations@agency.com
