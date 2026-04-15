@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { normalizeActiveServices } from "@/lib/active-services";
+import { ensureClientExists } from "@/lib/auth/ensure-client";
+import { parseStrategyWorkspace } from "@/lib/client/strategy-workspace";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -20,6 +22,9 @@ function isPostgrestError(
 export async function PATCH(request: NextRequest, context: Ctx) {
   try {
     const { id } = await context.params;
+    const scope = await ensureClientExists(id);
+    if (scope) return scope;
+
     let body: Record<string, unknown>;
     try {
       body = (await request.json()) as Record<string, unknown>;
@@ -47,6 +52,9 @@ export async function PATCH(request: NextRequest, context: Ctx) {
       const raw = body.primary_strategist_id;
       patch.primary_strategist_id =
         raw === null || String(raw).trim() === "" ? null : String(raw).trim();
+    }
+    if (body.strategy_workspace !== undefined) {
+      patch.strategy_workspace = parseStrategyWorkspace(body.strategy_workspace);
     }
 
     if (Object.keys(patch).length === 0) {

@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse, type NextRequest } from "next/server";
 
+import { logGeminiPromptDebug } from "@/lib/gemini/log-prompt-meta";
+
 type Body = {
   block_title: string;
   block_content: string;
@@ -29,7 +31,8 @@ export async function POST(request: NextRequest) {
     }
 
     const genAI = new GoogleGenerativeAI(key);
-    const model = genAI.getGenerativeModel({ model: modelName() }, { apiVersion: "v1" });
+    const resolvedModel = modelName();
+    const model = genAI.getGenerativeModel({ model: resolvedModel }, { apiVersion: "v1" });
     const prompt = [
       "Rewrite this report block for a client-facing monthly report.",
       "Tone: confident, clear, no hype, professional agency voice.",
@@ -39,6 +42,7 @@ export async function POST(request: NextRequest) {
       "",
       content,
     ].join("\n");
+    logGeminiPromptDebug(resolvedModel, prompt);
     const res = await model.generateContent(prompt);
     const rewritten = res.response.text()?.trim() ?? "";
     if (!rewritten) {

@@ -1,7 +1,7 @@
 import { createSupabasePublicClient } from "@/lib/supabase/public";
 import type { ReportBlock, ReportRow } from "@/types/database.types";
 
-function parseBlocks(raw: unknown): ReportBlock[] {
+export function parseReportBlocksFromJson(raw: unknown): ReportBlock[] {
   if (!Array.isArray(raw)) return [];
   return raw
     .map((b) => {
@@ -23,7 +23,7 @@ function mapReport(raw: Record<string, unknown>): ReportRow {
     client_id: String(raw.client_id),
     period_start: String(raw.period_start),
     period_end: String(raw.period_end),
-    blocks: parseBlocks(raw.blocks),
+    blocks: parseReportBlocksFromJson(raw.blocks),
     strategist_notes: raw.strategist_notes != null ? String(raw.strategist_notes) : null,
     public_id: String(raw.public_id),
     status: (raw.status as ReportRow["status"]) ?? "draft",

@@ -1,5 +1,6 @@
 import { cache } from "react";
 
+import { parseStrategyWorkspace } from "@/lib/client/strategy-workspace";
 import type { ClientWithSyncSnapshot } from "@/lib/dashboard/client-status";
 import { createSupabasePublicClient } from "@/lib/supabase/public";
 import { normalizeActiveServices } from "@/lib/active-services";
@@ -29,6 +30,7 @@ function mapClient(raw: Record<string, unknown>): ClientRow {
       r.primary_strategist_id != null && String(r.primary_strategist_id).trim() !== ""
         ? String(r.primary_strategist_id).trim()
         : null,
+    strategy_workspace: parseStrategyWorkspace(r.strategy_workspace),
     updated_at: r.updated_at != null ? String(r.updated_at) : null,
     active_services: normalizeActiveServices(raw.active_services),
   };

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 import { getGoogleAccessTokenFromRefresh } from "@/lib/google/access-token";
 import { submitGscSitemap } from "@/lib/google/gsc-sitemap-submit";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
@@ -8,6 +9,9 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(_request: Request, context: Ctx) {
   const { id } = await context.params;
+  const scope = await ensureClientExists(id);
+  if (scope) return scope;
+
   const supabase = getSupabaseAdmin();
 
   const { data: clientRow, error: clientErr } = await supabase

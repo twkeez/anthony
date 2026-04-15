@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 type Ctx = { params: Promise<{ id: string; goalId: string }> };
@@ -17,6 +18,9 @@ type GoalPatchBody = Partial<{
 export async function PATCH(request: NextRequest, context: Ctx) {
   try {
     const { id: clientId, goalId } = await context.params;
+    const scope = await ensureClientExists(clientId);
+    if (scope) return scope;
+
     const body = (await request.json()) as GoalPatchBody;
 
     const patch: Record<string, unknown> = {};

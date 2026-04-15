@@ -6,6 +6,7 @@ import {
   type CommunicationAlertsState,
 } from "@/lib/agency-hub/communication-alerts";
 import { normalizeActiveServices } from "@/lib/active-services";
+import { parseStrategyWorkspace } from "@/lib/client/strategy-workspace";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { createSupabasePublicClient } from "@/lib/supabase/public";
 import type { ClientRow } from "@/types/client";
@@ -34,6 +35,7 @@ function mapClient(raw: Record<string, unknown>): ClientRow {
       raw.primary_strategist_id != null && String(raw.primary_strategist_id).trim() !== ""
         ? String(raw.primary_strategist_id).trim()
         : null,
+    strategy_workspace: parseStrategyWorkspace(raw.strategy_workspace),
     updated_at: raw.updated_at != null ? String(raw.updated_at) : null,
     active_services: normalizeActiveServices(raw.active_services),
   };

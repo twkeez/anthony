@@ -1,12 +1,15 @@
 import { NextResponse } from "next/server";
 
 import { runClientVibeCheckAndSave } from "@/lib/ai/client-vibe-check";
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 /** @deprecated Prefer `generateClientVibeCheck` server action; kept for existing clients calling POST. */
 export async function POST(_request: Request, context: Ctx) {
   const { id: client_id } = await context.params;
+  const scope = await ensureClientExists(client_id);
+  if (scope) return scope;
 
   const result = await runClientVibeCheckAndSave(client_id);
   if (!result.ok) {

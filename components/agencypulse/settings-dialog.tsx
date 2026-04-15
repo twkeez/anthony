@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -29,6 +30,7 @@ type Props = {
 };
 
 export function SettingsDialog({ open, onOpenChange }: Props) {
+  const router = useRouter();
   const [rules, setRules] = useState<ThresholdRules>(defaultRules);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -160,6 +162,23 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
             Manage team and AI voice profiles
           </Link>{" "}
           — staff roster and Basecamp matching for communication sync.
+        </p>
+
+        <p className="text-muted-foreground text-xs">
+          <button
+            type="button"
+            className="text-primary underline-offset-4 hover:underline"
+            onClick={() => {
+              void (async () => {
+                await fetch("/api/auth/logout", { method: "POST" });
+                onOpenChange(false);
+                router.replace("/login");
+                router.refresh();
+              })();
+            }}
+          >
+            Sign out of workspace
+          </button>
         </p>
 
         <DialogFooter>

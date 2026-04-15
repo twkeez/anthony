@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import type { CommunicationMessageBoardTriageRow } from "@/lib/communication/message-board-triage-types";
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 const SNOOZE_DAYS_ALLOWED = new Set([1, 3, 7, 14]);
@@ -28,6 +29,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "invalid_body" }, { status: 400 });
     }
     const client_id = body.client_id.trim();
+    const scope = await ensureClientExists(client_id);
+    if (scope) return scope;
+
     const thread_key = body.thread_key.trim();
     const thread_updated_at = body.thread_updated_at.trim();
     const now = new Date().toISOString();

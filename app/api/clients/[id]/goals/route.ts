@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -16,6 +17,9 @@ type GoalBody = {
 export async function POST(request: NextRequest, context: Ctx) {
   try {
     const { id: clientId } = await context.params;
+    const scope = await ensureClientExists(clientId);
+    if (scope) return scope;
+
     const body = (await request.json()) as GoalBody;
     if (!body.goal_type || !body.metric_target_column?.trim() || !body.intent_statement?.trim()) {
       return NextResponse.json({ error: "missing_required_goal_fields" }, { status: 400 });

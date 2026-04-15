@@ -1,11 +1,15 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function GET(_request: NextRequest, context: Ctx) {
   const { id: client_id } = await context.params;
+  const scope = await ensureClientExists(client_id);
+  if (scope) return scope;
+
   try {
     const supabase = getSupabaseAdmin();
     const { data, error } = await supabase
@@ -24,6 +28,9 @@ export async function GET(_request: NextRequest, context: Ctx) {
 
 export async function POST(request: NextRequest, context: Ctx) {
   const { id: client_id } = await context.params;
+  const scope = await ensureClientExists(client_id);
+  if (scope) return scope;
+
   const body = (await request.json()) as {
     title?: string;
     description?: string | null;

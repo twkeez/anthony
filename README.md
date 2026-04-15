@@ -35,3 +35,21 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 # anthony
+
+AgencyPulse — Next.js + Supabase + Google (Ads, GA4, GSC, GBP) + Basecamp + Gemini.
+
+## Configuration
+
+See [docs/ENVIRONMENT.md](docs/ENVIRONMENT.md) for the full required/optional environment variable matrix.
+
+## Tests
+
+```bash
+npm test
+```
+
+Smoke tests cover GA4 report total parsing, goal metric column resolution, and report block JSON parsing.
+
+## Auth
+
+When `DASHBOARD_PASSWORD` and `DASHBOARD_SESSION_SECRET` (16+ chars) are set, open `/login` after deploy, then use the workspace as usual. Omit both in local dev to skip the gate.

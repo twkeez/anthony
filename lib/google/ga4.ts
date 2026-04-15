@@ -1,7 +1,7 @@
 import type { Ga4AlertsState } from "@/lib/agency-hub/ga4-analytics-status";
 import { EMPTY_GA4_ALERTS } from "@/lib/agency-hub/ga4-analytics-status";
 
-type Ga4ReportResponse = {
+export type Ga4ReportResponse = {
   totals?: Array<{ metricValues?: Array<{ value?: string }> }>;
   rows?: Array<{ metricValues?: Array<{ value?: string }> }>;
 };
@@ -10,7 +10,7 @@ type Ga4ReportResponse = {
  * GA4 `runReport` only fills `totals` when metric aggregations are requested; for typical
  * date-range + metrics queries the aggregate is in `rows[0]` (often a single row).
  */
-function readMetricTotals(data: Ga4ReportResponse): number[] {
+export function readGa4ReportMetricTotals(data: Ga4ReportResponse): number[] {
   const fromTotals = data.totals?.[0]?.metricValues;
   if (fromTotals && fromTotals.length > 0) {
     return fromTotals.map((m) => Number(m.value ?? NaN));
@@ -84,7 +84,7 @@ async function fetch30DayTotals(
       metrics,
     });
     if (!r.ok) continue;
-    const v = readMetricTotals(r.data);
+    const v = readGa4ReportMetricTotals(r.data);
     const sessions = Number.isFinite(v[0]) ? v[0] : null;
     const second = Number.isFinite(v[1]) ? v[1] : null;
     const engagementRate =
@@ -108,7 +108,7 @@ async function fetchSessionsSingleDay(
     metrics: [{ name: "sessions" }],
   });
   if (!r.ok) return null;
-  const v = readMetricTotals(r.data)[0];
+  const v = readGa4ReportMetricTotals(r.data)[0];
   return Number.isFinite(v) ? intOrNull(v) : null;
 }
 
@@ -121,7 +121,7 @@ async function fetch7DaySessionsAndEvents(
     metrics: [{ name: "sessions" }, { name: "keyEvents" }],
   });
   if (rK.ok) {
-    const v = readMetricTotals(rK.data);
+    const v = readGa4ReportMetricTotals(rK.data);
     return {
       sessions: Number.isFinite(v[0]) ? intOrNull(v[0]) : null,
       events: Number.isFinite(v[1]) ? intOrNull(v[1]) : null,
@@ -132,7 +132,7 @@ async function fetch7DaySessionsAndEvents(
     metrics: [{ name: "sessions" }, { name: "conversions" }],
   });
   if (!rC.ok) return { sessions: null, events: null };
-  const v = readMetricTotals(rC.data);
+  const v = readGa4ReportMetricTotals(rC.data);
   return {
     sessions: Number.isFinite(v[0]) ? intOrNull(v[0]) : null,
     events: Number.isFinite(v[1]) ? intOrNull(v[1]) : null,

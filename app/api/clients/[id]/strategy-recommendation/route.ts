@@ -1,6 +1,8 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { NextResponse } from "next/server";
 
+import { ensureClientExists } from "@/lib/auth/ensure-client";
+import { logGeminiPromptDebug } from "@/lib/gemini/log-prompt-meta";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -8,6 +10,9 @@ type Ctx = { params: Promise<{ id: string }> };
 export async function POST(_request: Request, context: Ctx) {
   try {
     const { id: clientId } = await context.params;
+    const scope = await ensureClientExists(clientId);
+    if (scope) return scope;
+
     const apiKey = process.env.GOOGLE_GEMINI_API_KEY?.trim();
     if (!apiKey) return NextResponse.json({ error: "GOOGLE_GEMINI_API_KEY is not set." }, { status: 400 });
 
@@ -22,7 +27,8 @@ export async function POST(_request: Request, context: Ctx) {
     }
 
     const genAI = new GoogleGenerativeAI(apiKey);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }, { apiVersion: "v1" });
+    const modelName = "gemini-2.5-flash";
+    const model = genAI.getGenerativeModel({ model: modelName }, { apiVersion: "v1" });
     const prompt = [
       "You are Anthony, an agency strategy analyst.",
       "Given this snapshot, write one concise strategic recommendation in 4-6 sentences.",
@@ -37,6 +43,7 @@ export async function POST(_request: Request, context: Ctx) {
       "Client goals JSON:",
       JSON.stringify(goals ?? [], null, 2),
     ].join("\n");
+    logGeminiPromptDebug(modelName, prompt);
     const result = await model.generateContent(prompt);
     const text = result.response.text()?.trim() ?? "";
     if (!text) return NextResponse.json({ error: "Empty recommendation." }, { status: 502 });

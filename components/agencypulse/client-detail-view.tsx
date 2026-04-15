@@ -45,6 +45,7 @@ import {
 import { EMPTY_GA4_ALERTS, parseGa4AlertsJson, type Ga4AlertsState } from "@/lib/agency-hub/ga4-analytics-status";
 import { compactGa4PropertyIdIssue } from "@/lib/google/ga4-property-id";
 import { metricProgress01, readMetricValue, resolveMetricColumnKey } from "@/lib/client-goals/metric-column";
+import { parseStrategyWorkspace, type StrategyRoadmapItem } from "@/lib/client/strategy-workspace";
 import type { StaffOptionRow } from "@/lib/data/staff";
 import { GoalCard } from "@/components/agencypulse/goal-card";
 import type { ClientGoalRow, ClientGoalType, ClientMetricsRow, TaskRow, TopOrganicQuery } from "@/types/database.types";
@@ -667,7 +668,13 @@ export function ClientDetailView({
   const [syncing, setSyncing] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
   const [strategyRecLoading, setStrategyRecLoading] = useState(false);
-  const [strategyRecommendation, setStrategyRecommendation] = useState("");
+  const [strategyWorkspaceSaving, setStrategyWorkspaceSaving] = useState(false);
+  const [strategyRecommendation, setStrategyRecommendation] = useState(
+    () => parseStrategyWorkspace(initialClient.strategy_workspace).recommendation ?? "",
+  );
+  const [roadmapItems, setRoadmapItems] = useState<StrategyRoadmapItem[]>(
+    () => parseStrategyWorkspace(initialClient.strategy_workspace).roadmap_items ?? [],
+  );
   const [manageGoalsOpen, setManageGoalsOpen] = useState(false);
   const [goalBusy, setGoalBusy] = useState(false);
   const [goalEditingId, setGoalEditingId] = useState<string | null>(null);
@@ -706,6 +713,7 @@ export function ClientDetailView({
       const next = {
         ...(row as unknown as ClientRow),
         active_services: normalizeActiveServices(row.active_services),
+        strategy_workspace: parseStrategyWorkspace(row.strategy_workspace),
       };
       setClient(next);
       setPrimaryStrategistId(next.primary_strategist_id ?? "");
@@ -714,6 +722,44 @@ export function ClientDetailView({
       setError(e instanceof Error ? e.message : "Save failed.");
     } finally {
       setSavingProfile(false);
+    }
+  }
+
+  async function saveStrategyWorkspace() {
+    setStrategyWorkspaceSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/clients/${client.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          strategy_workspace: {
+            recommendation: strategyRecommendation,
+            roadmap_items: roadmapItems.filter((x) => x.title.trim() !== ""),
+          },
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const parts = [data.error, data.details, data.hint].filter(
+          (x: unknown) => typeof x === "string" && x.trim() !== "",
+        ) as string[];
+        throw new Error(parts.length ? parts.join(" — ") : "Save failed.");
+      }
+      const row = data.client as Record<string, unknown>;
+      const next = {
+        ...(row as unknown as ClientRow),
+        active_services: normalizeActiveServices(row.active_services),
+        strategy_workspace: parseStrategyWorkspace(row.strategy_workspace),
+      };
+      setClient(next);
+      setStrategyRecommendation(next.strategy_workspace.recommendation ?? "");
+      setRoadmapItems(next.strategy_workspace.roadmap_items ?? []);
+      toast.success("Strategy workspace saved.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Save failed.");
+    } finally {
+      setStrategyWorkspaceSaving(false);
     }
   }
 
@@ -953,6 +999,14 @@ export function ClientDetailView({
         .slice(0, 8),
     [tasks],
   );
+
+  function addRoadmapItem() {
+    const id =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `rm_${Date.now().toString(36)}`;
+    setRoadmapItems((xs) => [...xs, { id, title: "", due_date: null }]);
+  }
 
   function resetGoalForm() {
     setGoalEditingId(null);
@@ -1872,15 +1926,26 @@ export function ClientDetailView({
           <div className={cn(midnightCard, "space-y-3")}>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Opportunity & Analysis</h2>
-              <Button
-                type="button"
-                variant="outline"
-                className="border-zinc-600 bg-transparent text-zinc-100 hover:bg-zinc-800"
-                disabled={strategyRecLoading}
-                onClick={() => void generateStrategyRecommendation()}
-              >
-                {strategyRecLoading ? "Generating…" : "Generate Strategic Recommendation"}
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-zinc-600 bg-transparent text-zinc-100 hover:bg-zinc-800"
+                  disabled={strategyRecLoading}
+                  onClick={() => void generateStrategyRecommendation()}
+                >
+                  {strategyRecLoading ? "Generating…" : "Generate Strategic Recommendation"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="bg-zinc-800 text-zinc-100 hover:bg-zinc-700"
+                  disabled={strategyWorkspaceSaving}
+                  onClick={() => void saveStrategyWorkspace()}
+                >
+                  {strategyWorkspaceSaving ? "Saving…" : "Save strategy workspace"}
+                </Button>
+              </div>
             </div>
             <Textarea
               className={cn(fieldClass, "min-h-[150px]")}
@@ -1892,17 +1957,81 @@ export function ClientDetailView({
         </TabsContent>
 
         <TabsContent value="roadmap" className="mt-8 grid gap-6">
-          <div className={cn(midnightCard, "space-y-2")}>
-            <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Roadmap</h2>
-            <p className="text-zinc-500 text-sm">
-              Use Strategy for tactical mission control. This tab can hold longer-horizon planning artifacts.
-            </p>
+          <div className={cn(midnightCard, "space-y-4")}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Roadmap</h2>
+                <p className="text-zinc-500 mt-1 text-sm">
+                  Milestones you define here persist on the client record (separate from Communication tasks).
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="outline" className="border-zinc-600 text-zinc-100" onClick={addRoadmapItem}>
+                  Add milestone
+                </Button>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="bg-zinc-800 text-zinc-100 hover:bg-zinc-700"
+                  disabled={strategyWorkspaceSaving}
+                  onClick={() => void saveStrategyWorkspace()}
+                >
+                  {strategyWorkspaceSaving ? "Saving…" : "Save roadmap"}
+                </Button>
+              </div>
+            </div>
             <a
               href={`/dashboard/clients/${client.id}/reports/new`}
-              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-600 bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-100 transition-colors hover:bg-zinc-800 sm:text-sm"
+              className="inline-flex w-fit items-center gap-1.5 rounded-md border border-zinc-600 bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-100 transition-colors hover:bg-zinc-800 sm:text-sm"
             >
               Open Report Builder
             </a>
+            {roadmapItems.length === 0 ? (
+              <p className="text-zinc-500 text-sm">No custom milestones yet. Use &quot;Add milestone&quot; above.</p>
+            ) : (
+              <div className="grid gap-3">
+                {roadmapItems.map((m) => (
+                  <div key={m.id} className="border-zinc-800 bg-zinc-950/40 grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_140px_auto] sm:items-end">
+                    <div className="grid gap-1">
+                      <Label className="text-zinc-500 text-xs">Title</Label>
+                      <Input
+                        className={fieldClass}
+                        value={m.title}
+                        onChange={(e) =>
+                          setRoadmapItems((xs) =>
+                            xs.map((x) => (x.id === m.id ? { ...x, title: e.target.value } : x)),
+                          )
+                        }
+                        placeholder="Launch new landing page"
+                      />
+                    </div>
+                    <div className="grid gap-1">
+                      <Label className="text-zinc-500 text-xs">Target date</Label>
+                      <Input
+                        type="date"
+                        className={fieldClass}
+                        value={m.due_date ?? ""}
+                        onChange={(e) =>
+                          setRoadmapItems((xs) =>
+                            xs.map((x) =>
+                              x.id === m.id ? { ...x, due_date: e.target.value.trim() || null } : x,
+                            ),
+                          )
+                        }
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      className="text-red-400 hover:bg-red-950/30 hover:text-red-300"
+                      onClick={() => setRoadmapItems((xs) => xs.filter((x) => x.id !== m.id))}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </TabsContent>
 

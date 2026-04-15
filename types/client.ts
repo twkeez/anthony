@@ -1,3 +1,4 @@
+import type { StrategyWorkspace } from "@/lib/client/strategy-workspace";
 import type { ActiveServices } from "@/types/database.types";
 
 export type ClientRow = {
@@ -30,6 +31,8 @@ export type ClientRow = {
   basecamp_email: string | null;
   /** Assigned strategist; Gemini uses `staff.writing_style_notes` when generating insights. */
   primary_strategist_id: string | null;
+  /** Persisted Strategy / Roadmap tab payload (see migration `strategy_workspace`). */
+  strategy_workspace: StrategyWorkspace;
   created_at: string;
   updated_at?: string | null;
 };

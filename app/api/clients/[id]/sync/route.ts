@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import { currentMetricMonthStart, syncCommunicationAlertsFromBasecamp } from "@/lib/sync/communication-sync";
 import { syncClientMetrics } from "@/lib/sync/client-metrics-sync";
@@ -8,6 +9,9 @@ type Ctx = { params: Promise<{ id: string }> };
 
 export async function POST(_request: Request, context: Ctx) {
   const { id } = await context.params;
+  const scope = await ensureClientExists(id);
+  if (scope) return scope;
+
   try {
     const result = await syncClientMetrics(id);
     await syncCommunicationAlertsFromBasecamp();

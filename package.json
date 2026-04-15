@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test": "tsx --test tests/**/*.test.ts",
+    "gen:types": "supabase gen types typescript --linked > types/database.gen.ts",
     "import:clients": "node scripts/import-clients.mjs",
     "discover:ga4-ids": "tsx scripts/discover-ga4-ids.ts",
     "sync:gbp-reviews": "tsx scripts/sync-gbp-reviews.ts"

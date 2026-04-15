@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { ensureClientExists } from "@/lib/auth/ensure-client";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 import type { ReportBlock, ReportStatus } from "@/types/database.types";
 
@@ -22,6 +23,9 @@ export async function POST(request: NextRequest) {
     if (!client_id || !period_start || !period_end || !Array.isArray(body.blocks)) {
       return NextResponse.json({ error: "Missing required report fields." }, { status: 400 });
     }
+
+    const scope = await ensureClientExists(client_id);
+    if (scope) return scope;
 
     const supabase = getSupabaseAdmin();
     const now = new Date().toISOString();
