@@ -57,11 +57,18 @@ export async function fetchGa4MonthTotals(params: {
 
   const json = (await res.json()) as {
     totals?: Array<{ metricValues?: Array<{ value?: string }> }>;
+    rows?: Array<{ metricValues?: Array<{ value?: string }> }>;
   };
 
-  const totals = json.totals?.[0]?.metricValues ?? [];
-  const sessions = Number(totals[0]?.value ?? 0);
-  const second = Number(totals[1]?.value ?? 0);
+  const cells =
+    json.totals?.[0]?.metricValues && json.totals[0].metricValues.length > 0
+      ? json.totals[0].metricValues
+      : json.rows?.[0]?.metricValues && json.rows[0].metricValues.length > 0
+        ? json.rows[0].metricValues
+        : [];
+
+  const sessions = Number(cells[0]?.value ?? 0);
+  const second = Number(cells[1]?.value ?? 0);
 
   return { sessions, keyEvents: second };
 }

@@ -181,8 +181,11 @@ export function Ga4MapperClient({ initialClients }: { initialClients: ClientMapp
                           </div>
                         ) : null}
                       </td>
-                      <td className={cn(td, "font-mono text-xs text-zinc-400")}>
-                        {normalizeGa4StoredId(c.ga4_property_id) || "—"}
+                      <td
+                        className={cn(td, "font-mono text-xs text-zinc-400 max-w-[200px] truncate")}
+                        title={c.ga4_property_id?.trim() ?? ""}
+                      >
+                        {normalizeGa4StoredId(c.ga4_property_id) || c.ga4_property_id?.trim() || "—"}
                       </td>
                       <td className={td}>
                         {!hasFetchedGoogle ? (

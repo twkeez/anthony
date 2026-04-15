@@ -27,6 +27,8 @@ import { cn } from "@/lib/utils";
 function parseCsvFile(file: File, onComplete: (rows: ClientImportPreviewRow[]) => void, onError: (msg: string) => void) {
   Papa.parse<Record<string, unknown>>(file, {
     header: true,
+    /** Empty string lets Papa detect comma vs tab from the first line (Sheets/Excel exports). */
+    delimiter: "",
     skipEmptyLines: "greedy",
     complete: (res) => {
       if (res.errors.length) {
@@ -134,11 +136,11 @@ export function ClientImportManager() {
         <CardHeader>
           <CardTitle>Import clients from CSV</CardTitle>
           <CardDescription>
-            Export a sheet from Excel or Google Sheets as <strong>.csv</strong> (UTF-8). One row per client. Existing
-            clients match on <code className="text-xs">internal_crm_id</code> first, then{" "}
-            <code className="text-xs">client_name</code> / <code className="text-xs">business_name</code>{" "}
-            (case-insensitive). Empty cells leave existing values unchanged — so you can upload a file with only Ads and
-            GA4 columns filled.
+            Export a sheet from Excel or Google Sheets as <strong>.csv</strong> (UTF-8). One row per client. Best match
+            order: <code className="text-xs">client_id</code> (Anthony UUID from a DB export), then{" "}
+            <code className="text-xs">internal_crm_id</code>, then <code className="text-xs">client_name</code> /{" "}
+            <code className="text-xs">business_name</code> (exact, case-insensitive). Empty cells leave existing values
+            unchanged — upload a sheet with only Ads + GA4 columns if you use CRM or UUID matching.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">
@@ -251,6 +253,7 @@ export function ClientImportManager() {
               <TableHeader>
                 <TableRow>
                   <TableHead className="w-10">#</TableHead>
+                  <TableHead className="max-w-[100px]">Client ID</TableHead>
                   <TableHead>Client</TableHead>
                   <TableHead>CRM ID</TableHead>
                   <TableHead>PPC</TableHead>
@@ -275,6 +278,9 @@ export function ClientImportManager() {
                       )}
                     >
                       <TableCell className="text-muted-foreground text-xs">{row.rowIndex}</TableCell>
+                      <TableCell className="max-w-[100px] truncate font-mono text-[10px] text-zinc-400">
+                        {row.client_id ?? "—"}
+                      </TableCell>
                       <TableCell className="font-medium">{row.client_name || "—"}</TableCell>
                       <TableCell className="max-w-[120px] truncate font-mono text-xs">
                         {row.internal_crm_id ?? "—"}

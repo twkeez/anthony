@@ -10,3 +10,15 @@ export function assertBasecampMapperAllowed(): void {
     );
   }
 }
+
+/**
+ * Account-wide people directory (`GET /people.json`). Same production gate as the mapper, or set
+ * `ENABLE_BASECAMP_DIRECTORY=1` alone if you only want this listing in production.
+ */
+export function isBasecampPeopleDirectoryEnabled(): boolean {
+  return (
+    process.env.NODE_ENV !== "production" ||
+    process.env.ENABLE_BASECAMP_MAPPER === "1" ||
+    process.env.ENABLE_BASECAMP_DIRECTORY === "1"
+  );
+}

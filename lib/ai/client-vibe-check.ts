@@ -7,6 +7,8 @@ import { currentMetricMonthStart } from "@/lib/sync/communication-sync";
 const VIBE_SYSTEM_PROMPT = [
   "You are an Agency Director. Summarize account health in 2 sentences and provide one 'Next Step'.",
   "",
+  "When the user message includes a 'Primary strategist voice' block, match that strategist's tone, vocabulary, and formality in your two sentences and the Next step line (suggested client-facing reply style).",
+  "",
   "Use communication_alerts when choosing the Next Step:",
   "- If waitingForResponse is true, the client is waiting on the agency—prioritize replying, unblocking, or following up on Basecamp (not generic marketing tasks).",
   "- If daysSinceLastContact is a large number (or last message is stale), prioritize re-engagement or scheduling contact before chasing unrelated optimizations.",
@@ -50,6 +52,24 @@ function isRetryableGeminiRateLimit(message: string): boolean {
   return /429|Too Many Requests|Resource exhausted|quota exceeded|rate limit/i.test(message);
 }
 
+function strategistVoiceBlock(
+  strategist: { full_name: string; writing_style_notes: string | null } | null,
+): string {
+  if (!strategist?.writing_style_notes?.trim()) {
+    return [
+      "Primary strategist voice:",
+      "(No writing_style_notes on file for this client's assigned strategist — use a clear, professional Account Manager tone.)",
+    ].join("\n");
+  }
+  return [
+    "Primary strategist voice:",
+    `- Strategist: ${strategist.full_name}`,
+    "",
+    "Emulate how this person communicates when you phrase the two sentences and the Next step (word choice, warmth, brevity, sign-off style):",
+    strategist.writing_style_notes.trim(),
+  ].join("\n");
+}
+
 function communicationPriorityLines(snapshot: VibeMetricsSnapshot): string {
   const raw = snapshot.communication_alerts;
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
@@ -88,7 +108,7 @@ export async function runClientVibeCheckAndSave(clientId: string): Promise<Clien
 
   const { data: client, error: cErr } = await supabase
     .from("clients")
-    .select("business_name")
+    .select("business_name, primary_strategist_id")
     .eq("id", id)
     .maybeSingle();
 
@@ -99,6 +119,28 @@ export async function runClientVibeCheckAndSave(clientId: string): Promise<Clien
     typeof (client as { business_name?: unknown }).business_name === "string"
       ? String((client as { business_name: string }).business_name).trim() || "Client"
       : "Client";
+
+  const strategistIdRaw = (client as { primary_strategist_id?: unknown }).primary_strategist_id;
+  const strategistId =
+    strategistIdRaw != null && String(strategistIdRaw).trim() !== "" ? String(strategistIdRaw).trim() : null;
+
+  let strategist: { full_name: string; writing_style_notes: string | null } | null = null;
+  if (strategistId) {
+    const { data: stRow, error: stErr } = await supabase
+      .from("staff")
+      .select("full_name, writing_style_notes")
+      .eq("id", strategistId)
+      .maybeSingle();
+    if (!stErr && stRow) {
+      strategist = {
+        full_name: String((stRow as { full_name: string }).full_name ?? "").trim() || "Strategist",
+        writing_style_notes:
+          (stRow as { writing_style_notes: string | null }).writing_style_notes != null
+            ? String((stRow as { writing_style_notes: string | null }).writing_style_notes)
+            : null,
+      };
+    }
+  }
 
   const { data: metricsRow, error: mErr } = await supabase
     .from("client_metrics")
@@ -147,6 +189,8 @@ export async function runClientVibeCheckAndSave(clientId: string): Promise<Clien
   const userContent = [
     `Client: ${businessName}`,
     `Metric month: ${metricMonth}`,
+    "",
+    strategistVoiceBlock(strategist),
     "",
     communicationPriorityLines(snapshot),
     "",

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -149,6 +150,17 @@ export function SettingsDialog({ open, onOpenChange }: Props) {
         )}
 
         {error ? <p className="text-destructive text-sm">{error}</p> : null}
+
+        <p className="text-muted-foreground border-border text-sm border-t pt-3">
+          <Link
+            href="/dashboard/settings/team"
+            className="text-primary font-medium underline-offset-4 hover:underline"
+            onClick={() => onOpenChange(false)}
+          >
+            Manage team and AI voice profiles
+          </Link>{" "}
+          — staff roster and Basecamp matching for communication sync.
+        </p>
 
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>

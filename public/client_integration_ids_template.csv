@@ -1,2 +1,2 @@
-client_name,internal_crm_id,google_ads_id,ga4_property_id
-Acme Dental,CRM-ACME-001,1234567890,987654321
+client_id,client_name,internal_crm_id,google_ads_id,ga4_property_id
+,Acme Dental,CRM-ACME-001,1234567890,987654321

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  BookUser,
   Braces,
   CheckSquare,
   FileUp,
@@ -14,6 +15,9 @@ import {
   PanelLeftClose,
   PanelLeft,
   Settings,
+  Store,
+  UserCheck,
+  UserCog,
   Users,
 } from "lucide-react";
 import Link from "next/link";
@@ -84,6 +88,12 @@ const items: NavItem[] = [
     match: (p) => p.startsWith("/dashboard/communication"),
   },
   {
+    href: "/dashboard/gbp-reviews",
+    label: "GBP reviews",
+    icon: Store,
+    match: (p) => p.startsWith("/dashboard/gbp-reviews"),
+  },
+  {
     href: "/dashboard/dev/ga4-mapper",
     label: "GA4 mapper",
     icon: Braces,
@@ -96,6 +106,12 @@ const items: NavItem[] = [
     match: (p) => p.startsWith("/dashboard/dev/basecamp-mapper"),
   },
   {
+    href: "/dashboard/dev/basecamp-people",
+    label: "Basecamp people",
+    icon: BookUser,
+    match: (p) => p.startsWith("/dashboard/dev/basecamp-people"),
+  },
+  {
     href: "/dashboard/clients/manage",
     label: "Import",
     icon: FileUp,
@@ -106,6 +122,18 @@ const items: NavItem[] = [
     label: "Tasks",
     icon: CheckSquare,
     match: (p) => p.startsWith("/dashboard/tasks"),
+  },
+  {
+    href: "/dashboard/settings/team",
+    label: "Team",
+    icon: UserCog,
+    match: (p) => p.startsWith("/dashboard/settings/team"),
+  },
+  {
+    href: "/dashboard/settings/communication-internal",
+    label: "Internal contacts",
+    icon: UserCheck,
+    match: (p) => p.startsWith("/dashboard/settings/communication-internal"),
   },
 ];
 

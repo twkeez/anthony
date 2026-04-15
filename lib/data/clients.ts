@@ -25,6 +25,10 @@ function mapClient(raw: Record<string, unknown>): ClientRow {
     gbp_location_id: r.gbp_location_id != null ? String(r.gbp_location_id) : null,
     basecamp_project_id: r.basecamp_project_id != null ? String(r.basecamp_project_id) : null,
     basecamp_email: r.basecamp_email != null ? String(r.basecamp_email) : null,
+    primary_strategist_id:
+      r.primary_strategist_id != null && String(r.primary_strategist_id).trim() !== ""
+        ? String(r.primary_strategist_id).trim()
+        : null,
     updated_at: r.updated_at != null ? String(r.updated_at) : null,
     active_services: normalizeActiveServices(raw.active_services),
   };

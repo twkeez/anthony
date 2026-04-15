@@ -20,6 +20,8 @@ function hasAnyActiveGa4Alert(raw: unknown): boolean {
 export type DashboardKpis = {
   overdueTasksTotal: number;
   needsReplyCount: number;
+  /** Message-board threads with last activity from client / external (from `unansweredClientThreads`). */
+  clientMessageThreadsOpen: number;
   staleAccountsCount: number;
   /** Count of active spend-drop + disapproval flags (can exceed client count). */
   adAlertsPriorityCount: number;
@@ -48,6 +50,7 @@ export async function fetchDashboardKpis(opts?: { signal?: AbortSignal }): Promi
 
   let overdueTasksTotal = 0;
   let needsReplyCount = 0;
+  let clientMessageThreadsOpen = 0;
   let staleAccountsCount = 0;
   let adAlertsPriorityCount = 0;
   let ga4AlertsCount = 0;
@@ -63,6 +66,7 @@ export async function fetchDashboardKpis(opts?: { signal?: AbortSignal }): Promi
     if (comm) {
       overdueTasksTotal += Math.max(0, Math.floor(Number(comm.overdueCount)) || 0);
       if (comm.waitingForResponse === true) needsReplyCount += 1;
+      clientMessageThreadsOpen += comm.unansweredClientThreads?.length ?? 0;
       const d = comm.daysSinceLastContact;
       if (d != null && Number.isFinite(d) && d >= 15) staleAccountsCount += 1;
     }
@@ -79,6 +83,7 @@ export async function fetchDashboardKpis(opts?: { signal?: AbortSignal }): Promi
   return {
     overdueTasksTotal,
     needsReplyCount,
+    clientMessageThreadsOpen,
     staleAccountsCount,
     adAlertsPriorityCount,
     ga4AlertsCount,
@@ -204,7 +209,9 @@ export function collectClientIdsFromBundle(bundle: HubAlertsBundle): string[] {
     bundle.communication,
     bundle.communicationActionItems,
   ];
-  return lists.flatMap((list) => list.map((x) => x.clientId));
+  const fromRows = lists.flatMap((list) => list.map((x) => x.clientId));
+  const fromUnanswered = bundle.unansweredClientMessages.map((x) => x.clientId);
+  return [...fromRows, ...fromUnanswered];
 }
 
 export type DashboardWorkspacePayload = {

@@ -23,6 +23,62 @@ export type TopOrganicQuery = {
   impressions?: number;
 };
 
+export type ClientGoalType = "Acquisition" | "Efficiency" | "Awareness" | "Retention";
+
+export type ClientGoalStatus = "active" | "completed";
+export type ReportStatus = "draft" | "published";
+
+export type GbpReviewRow = {
+  id: string;
+  client_id: string;
+  review_id: string;
+  review_resource_name: string;
+  reviewer_name: string;
+  star_rating: number;
+  comment: string | null;
+  reply_text: string | null;
+  is_replied: boolean;
+  review_timestamp: string | null;
+  last_sync_at: string;
+};
+
+export type ClientGoalRow = {
+  id: string;
+  client_id: string;
+  goal_type: ClientGoalType;
+  target_value: number;
+  /** Maps to `client_metrics` via app whitelist (e.g. `conversions`, `ads_conversions`, `cpc`). */
+  metric_target_column: string;
+  intent_statement: string;
+  evidence_keywords: string[];
+  status: ClientGoalStatus;
+  ai_analysis: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ReportBlockType = "summary" | "ads" | "analytics" | "local" | "basecamp";
+
+export type ReportBlock = {
+  id: string;
+  type: ReportBlockType;
+  title: string;
+  content: string;
+};
+
+export type ReportRow = {
+  id: string;
+  client_id: string;
+  period_start: string;
+  period_end: string;
+  blocks: ReportBlock[];
+  strategist_notes: string | null;
+  public_id: string;
+  status: ReportStatus;
+  created_at: string;
+  updated_at: string;
+};
+
 export type TaskRow = {
   id: string;
   client_id: string;
@@ -85,4 +141,17 @@ export type ClientMetricsRow = {
 
 export type TaskWithClient = TaskRow & {
   clients: { business_name: string; id: string } | null;
+};
+
+/** `public.staff` — roster, Basecamp matching, AI voice notes. */
+export type StaffTableRow = {
+  id: string;
+  full_name: string;
+  email: string;
+  basecamp_id: string | null;
+  basecamp_name_handle: string | null;
+  writing_style_notes: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
 };

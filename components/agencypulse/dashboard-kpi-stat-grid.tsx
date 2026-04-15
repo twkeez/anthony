@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Clock, Gauge, MessageCircle, Megaphone, Radio } from "lucide-react";
+import { AlertTriangle, Clock, Gauge, MessageCircle, MessagesSquare, Megaphone, Radio } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 import type { DashboardKpis } from "@/lib/agency-hub/dashboard-workspace";
@@ -41,8 +41,8 @@ function StatCard({
 export function DashboardKpiStatGrid({ kpis, loading }: { kpis: DashboardKpis | null; loading: boolean }) {
   if (loading || !kpis) {
     return (
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
+        {Array.from({ length: 7 }).map((_, i) => (
           <div
             key={i}
             className={cn(cardOuter, "h-[132px] animate-pulse bg-zinc-100")}
@@ -54,7 +54,7 @@ export function DashboardKpiStatGrid({ kpis, loading }: { kpis: DashboardKpis | 
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
       <StatCard
         label="Overdue tasks"
         value={kpis.overdueTasksTotal}
@@ -66,6 +66,12 @@ export function DashboardKpiStatGrid({ kpis, loading }: { kpis: DashboardKpis | 
         value={kpis.needsReplyCount}
         icon={MessageCircle}
         accentClass="text-[#ef4444]"
+      />
+      <StatCard
+        label="Client threads open"
+        value={kpis.clientMessageThreadsOpen}
+        icon={MessagesSquare}
+        accentClass="text-rose-600"
       />
       <StatCard
         label="Stale accounts"

@@ -79,8 +79,25 @@ function useBreadcrumbs(): Crumb[] {
       return out;
     }
 
+    if (pathname.startsWith("/dashboard/dev/basecamp-people")) {
+      out.push({ label: "Basecamp people", href: null });
+      return out;
+    }
+
     if (pathname.startsWith("/dashboard/tasks")) {
       out.push({ label: "Tasks", href: null });
+      return out;
+    }
+
+    if (pathname.startsWith("/dashboard/settings/team")) {
+      out.push({ label: "Settings", href: null });
+      out.push({ label: "Team", href: null });
+      return out;
+    }
+
+    if (pathname.startsWith("/dashboard/settings/communication-internal")) {
+      out.push({ label: "Settings", href: null });
+      out.push({ label: "Internal contacts", href: null });
       return out;
     }
 

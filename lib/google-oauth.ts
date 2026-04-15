@@ -11,9 +11,12 @@ export const GOOGLE_OAUTH_SCOPES = [
   "email",
   "profile",
   "https://www.googleapis.com/auth/adwords",
+  /** GA4 Data API + Analytics Admin API (e.g. `accountSummaries.list`). `analytics.edit` not required for read. */
   "https://www.googleapis.com/auth/analytics.readonly",
   /** Read + submit sitemaps (Search Console / Webmasters). Readonly is not enough for resubmit. */
   "https://www.googleapis.com/auth/webmasters",
+  /** Google Business Profile — locations & reviews (My Business v4 / Business Information v1). */
+  "https://www.googleapis.com/auth/business.manage",
   // PageSpeed / Lighthouse-style audits often use an API key; include if you switch to OAuth:
   // "https://www.googleapis.com/auth/pagespeedonline",
 ].join(" ");

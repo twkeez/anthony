@@ -28,6 +28,8 @@ export type ClientRow = {
   gbp_location_id: string | null;
   basecamp_project_id: string | null;
   basecamp_email: string | null;
+  /** Assigned strategist; Gemini uses `staff.writing_style_notes` when generating insights. */
+  primary_strategist_id: string | null;
   created_at: string;
   updated_at?: string | null;
 };

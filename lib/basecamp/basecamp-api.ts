@@ -165,6 +165,70 @@ function parseProjectsPayload(json: unknown): Basecamp2Project[] {
   return out;
 }
 
+/** One row from `GET /people.json` (fields used for staff sync). */
+export type BasecampPerson = {
+  id: string;
+  name: string;
+  email_address: string;
+  /** Present on some accounts; used as a supplemental “recent” signal for staff sync. */
+  updated_at?: string;
+};
+
+function parsePeoplePayload(json: unknown): BasecampPerson[] {
+  if (!Array.isArray(json)) {
+    throw new Error("Basecamp returned unexpected JSON (expected an array of people).");
+  }
+
+  const out: BasecampPerson[] = [];
+  for (const el of json) {
+    if (!el || typeof el !== "object") continue;
+    const o = el as Record<string, unknown>;
+    const idRaw = o.id;
+    const id =
+      typeof idRaw === "number" && Number.isFinite(idRaw)
+        ? String(Math.trunc(idRaw))
+        : typeof idRaw === "string" && idRaw.trim() !== ""
+          ? idRaw.trim()
+          : "";
+    const name = typeof o.name === "string" ? o.name.trim() : "";
+    const emailRaw =
+      typeof o.email_address === "string"
+        ? o.email_address.trim()
+        : typeof o.email === "string"
+          ? o.email.trim()
+          : "";
+    if (!id) continue;
+    const updatedRaw = o.updated_at;
+    const updated_at =
+      typeof updatedRaw === "string" && updatedRaw.trim() !== "" ? updatedRaw.trim() : undefined;
+    out.push({
+      id,
+      name,
+      email_address: emailRaw,
+      ...(updated_at ? { updated_at } : {}),
+    });
+  }
+  return out;
+}
+
+/**
+ * Lists people in the Basecamp account (`/api/v1/people.json`).
+ * Uses the same auth as other Basecamp helpers (`BASECAMP_ACCESS_TOKEN` or Basic).
+ */
+export async function fetchBasecampPeople(): Promise<BasecampPerson[]> {
+  const accountId = getBasecampAccountId();
+  const url = `https://basecamp.com/${accountId}/api/v1/people.json`;
+  const res = await fetchBasecampPage(url, buildAuthHeaders(), { log: false });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(
+      `Basecamp people request failed (${res.status} ${res.statusText}). ${body.slice(0, 240)}`.trim(),
+    );
+  }
+  const json: unknown = await res.json();
+  return parsePeoplePayload(json);
+}
+
 async function fetchBasecampPage(
   url: string,
   headers: Record<string, string>,
@@ -383,7 +447,7 @@ export async function fetchProjectTodoLists(projectId: string): Promise<unknown[
   return json;
 }
 
-const MAX_MESSAGE_EXCERPT_LENGTH = 600;
+const MAX_MESSAGE_EXCERPT_LENGTH = 1200;
 
 function stripHtmlToPlainText(html: string): string {
   const t = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
@@ -398,53 +462,7 @@ function topicUpdatedAtMs(topic: Record<string, unknown>): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-/**
- * Latest **message board** activity for a project: first page of `topics.json` (newest first),
- * filtered to `topicable.type === "Message"`, then the most recently updated thread.
- * @see https://github.com/basecamp/bcx-api/blob/master/sections/topics.md
- */
-export async function fetchProjectLatestMessageBoardTopic(
-  projectId: string,
-): Promise<CommunicationLastMessageSnapshot | null> {
-  const pid = String(projectId ?? "").trim();
-  if (!pid) return null;
-
-  const accountId = getBasecampAccountId();
-  const url = `https://basecamp.com/${accountId}/api/v1/projects/${encodeURIComponent(pid)}/topics.json?page=1`;
-  const headers = buildAuthHeaders();
-  const res = await fetchBasecampPage(url, headers, { log: false });
-
-  if (!res.ok) {
-    console.error(
-      `[Basecamp project topics] project=${pid} — HTTP`,
-      res.status,
-      res.statusText,
-      res.url,
-    );
-    return null;
-  }
-
-  const json: unknown = await res.json();
-  if (!Array.isArray(json)) {
-    console.error(`[Basecamp project topics] project=${pid} — expected JSON array`);
-    return null;
-  }
-
-  const messageTopics: Record<string, unknown>[] = [];
-  for (const el of json) {
-    if (!el || typeof el !== "object") continue;
-    const row = el as Record<string, unknown>;
-    const topicable = row.topicable;
-    if (!topicable || typeof topicable !== "object") continue;
-    const type = (topicable as Record<string, unknown>).type;
-    if (String(type) !== "Message") continue;
-    messageTopics.push(row);
-  }
-
-  if (messageTopics.length === 0) return null;
-
-  messageTopics.sort((a, b) => topicUpdatedAtMs(b) - topicUpdatedAtMs(a));
-  const top = messageTopics[0];
+function mapTopicRowToMessageSnapshot(top: Record<string, unknown>): CommunicationLastMessageSnapshot | null {
   const title = typeof top.title === "string" ? top.title.trim() : "";
   const excerptRaw = typeof top.excerpt === "string" ? top.excerpt.trim() : "";
   const updatedAt = typeof top.updated_at === "string" ? top.updated_at.trim() : "";
@@ -478,6 +496,69 @@ export async function fetchProjectLatestMessageBoardTopic(
     ...(authorEmail ? { authorEmail } : {}),
     ...(appUrl ? { webUrl: appUrl } : {}),
   };
+}
+
+/**
+ * First page of project `topics.json`: all **Message** board threads, newest `updated_at` first.
+ * Used for latest-thread snapshot and for listing client-side threads awaiting reply.
+ */
+export async function fetchProjectMessageBoardTopicSnapshots(projectId: string): Promise<CommunicationLastMessageSnapshot[]> {
+  const pid = String(projectId ?? "").trim();
+  if (!pid) return [];
+
+  const accountId = getBasecampAccountId();
+  const url = `https://basecamp.com/${accountId}/api/v1/projects/${encodeURIComponent(pid)}/topics.json?page=1`;
+  const headers = buildAuthHeaders();
+  const res = await fetchBasecampPage(url, headers, { log: false });
+
+  if (!res.ok) {
+    console.error(
+      `[Basecamp project topics] project=${pid} — HTTP`,
+      res.status,
+      res.statusText,
+      res.url,
+    );
+    return [];
+  }
+
+  const json: unknown = await res.json();
+  if (!Array.isArray(json)) {
+    console.error(`[Basecamp project topics] project=${pid} — expected JSON array`);
+    return [];
+  }
+
+  const messageTopics: Record<string, unknown>[] = [];
+  for (const el of json) {
+    if (!el || typeof el !== "object") continue;
+    const row = el as Record<string, unknown>;
+    const topicable = row.topicable;
+    if (!topicable || typeof topicable !== "object") continue;
+    const type = (topicable as Record<string, unknown>).type;
+    if (String(type) !== "Message") continue;
+    messageTopics.push(row);
+  }
+
+  if (messageTopics.length === 0) return [];
+
+  messageTopics.sort((a, b) => topicUpdatedAtMs(b) - topicUpdatedAtMs(a));
+  const out: CommunicationLastMessageSnapshot[] = [];
+  for (const top of messageTopics) {
+    const snap = mapTopicRowToMessageSnapshot(top);
+    if (snap) out.push(snap);
+  }
+  return out;
+}
+
+/**
+ * Latest **message board** activity for a project: first page of `topics.json` (newest first),
+ * filtered to `topicable.type === "Message"`, then the most recently updated thread.
+ * @see https://github.com/basecamp/bcx-api/blob/master/sections/topics.md
+ */
+export async function fetchProjectLatestMessageBoardTopic(
+  projectId: string,
+): Promise<CommunicationLastMessageSnapshot | null> {
+  const snaps = await fetchProjectMessageBoardTopicSnapshots(projectId);
+  return snaps.length > 0 ? snaps[0] : null;
 }
 
 /**

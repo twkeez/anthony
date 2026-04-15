@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   AlertCircle,
   AlertTriangle,
   Clock,
+  Copy,
   DollarSign,
   ExternalLink,
   Eye,
@@ -19,6 +20,8 @@ import { toast } from "sonner";
 import type { LucideIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -40,13 +43,19 @@ import {
   type CommunicationAlertsState,
 } from "@/lib/agency-hub/communication-alerts";
 import { EMPTY_GA4_ALERTS, parseGa4AlertsJson, type Ga4AlertsState } from "@/lib/agency-hub/ga4-analytics-status";
-import type { ClientMetricsRow, TaskRow, TopOrganicQuery } from "@/types/database.types";
+import { compactGa4PropertyIdIssue } from "@/lib/google/ga4-property-id";
+import { metricProgress01, readMetricValue, resolveMetricColumnKey } from "@/lib/client-goals/metric-column";
+import type { StaffOptionRow } from "@/lib/data/staff";
+import { GoalCard } from "@/components/agencypulse/goal-card";
+import type { ClientGoalRow, ClientGoalType, ClientMetricsRow, TaskRow, TopOrganicQuery } from "@/types/database.types";
 import type { ClientRow } from "@/types/client";
 
 type Props = {
   client: ClientRow;
   initialTasks: TaskRow[];
   initialMetrics: ClientMetricsRow | null;
+  initialGoals: ClientGoalRow[];
+  staffOptions: StaffOptionRow[];
 };
 
 function formatUsd(n: number | null | undefined, digits = 2): string {
@@ -210,7 +219,7 @@ function SeoSearchConsoleSitemapBlock({
   async function handleGenerate() {
     const raw = client.search_console_url?.trim();
     if (!raw) {
-      toast.error("Set Search Console property URL in Settings first.");
+      toast.error("Set Search Console property URL in Connections first.");
       return;
     }
     const text = urlForSitemapGenerator(raw);
@@ -620,14 +629,30 @@ function ServicePills({ services }: { services: ClientRow["active_services"] }) 
   );
 }
 
-export function ClientDetailView({ client: initialClient, initialTasks, initialMetrics }: Props) {
+export function ClientDetailView({
+  client: initialClient,
+  initialTasks,
+  initialMetrics,
+  initialGoals,
+  staffOptions,
+}: Props) {
   const [client, setClient] = useState(initialClient);
   const [tasks, setTasks] = useState<TaskRow[]>(initialTasks);
   const [metrics, setMetrics] = useState<ClientMetricsRow | null>(initialMetrics);
+  const [goals, setGoals] = useState<ClientGoalRow[]>(initialGoals);
+  const goalsCommunication = useMemo(
+    () => parseCommunicationAlertsJson(metrics?.communication_alerts as unknown),
+    [metrics?.communication_alerts],
+  );
 
+  const [primaryStrategistId, setPrimaryStrategistId] = useState(client.primary_strategist_id ?? "");
   const [emailDomain, setEmailDomain] = useState(client.email_domain ?? "");
   const [adsId, setAdsId] = useState(client.google_ads_customer_id ?? "");
   const [ga4Id, setGa4Id] = useState(client.ga4_property_id ?? "");
+  const ga4PropertyFormatHint = useMemo(
+    () => (ga4Id.trim() ? compactGa4PropertyIdIssue(ga4Id) : null),
+    [ga4Id],
+  );
   const [searchConsoleUrl, setSearchConsoleUrl] = useState(client.search_console_url ?? "");
   const [svc, setSvc] = useState(normalizeActiveServices(client.active_services));
 
@@ -641,6 +666,16 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
   const [adding, setAdding] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [aiLoading, setAiLoading] = useState(false);
+  const [strategyRecLoading, setStrategyRecLoading] = useState(false);
+  const [strategyRecommendation, setStrategyRecommendation] = useState("");
+  const [manageGoalsOpen, setManageGoalsOpen] = useState(false);
+  const [goalBusy, setGoalBusy] = useState(false);
+  const [goalEditingId, setGoalEditingId] = useState<string | null>(null);
+  const [goalType, setGoalType] = useState<ClientGoalType>("Acquisition");
+  const [goalTarget, setGoalTarget] = useState("");
+  const [goalMetricColumn, setGoalMetricColumn] = useState("conversions");
+  const [goalIntent, setGoalIntent] = useState("");
+  const [goalEvidenceKeywords, setGoalEvidenceKeywords] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   async function saveProfile() {
@@ -657,6 +692,7 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
           ga4_property_id: ga4Id.trim() || null,
           search_console_url: searchConsoleUrl.trim() || null,
           active_services: svc,
+          primary_strategist_id: primaryStrategistId.trim() || null,
         }),
       });
       const data = await res.json();
@@ -672,6 +708,7 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
         active_services: normalizeActiveServices(row.active_services),
       };
       setClient(next);
+      setPrimaryStrategistId(next.primary_strategist_id ?? "");
       setProfileMsg("Saved.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Save failed.");
@@ -880,101 +917,287 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
     : null;
 
   const fieldClass = "border-zinc-700 bg-zinc-950/80 text-zinc-100 placeholder:text-zinc-600";
+  const selectedStrategistName = staffOptions.find((s) => s.id === primaryStrategistId)?.full_name ?? "— None —";
 
-  const profileSection = (
-    <div className={cn(midnightCard, "grid gap-6")}>
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Connections & services</h2>
-        <p className="text-zinc-500 mt-1 text-sm">
-          Email domain, Ads, GA4, and Search Console property URL power sync and future comms filters.
-        </p>
-      </div>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="email_domain" className="text-zinc-400">
-            Primary email domain
-          </Label>
-          <Input
-            id="email_domain"
-            className={fieldClass}
-            placeholder="clientcompany.com"
-            value={emailDomain}
-            onChange={(e) => setEmailDomain(e.target.value)}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label className="text-zinc-400">Active services</Label>
-          <div className="border-zinc-800 bg-zinc-950/40 grid gap-3 rounded-lg border p-3">
-            {(
-              [
-                ["seo", "SEO"],
-                ["ppc", "PPC"],
-                ["social", "Social"],
-                ["orm", "ORM"],
-              ] as const
-            ).map(([key, label]) => (
-              <div key={key} className="flex items-center justify-between gap-3">
-                <span className="text-sm text-zinc-300">{label}</span>
-                <Switch
-                  checked={svc[key]}
-                  onCheckedChange={(v) => setSvc((s) => ({ ...s, [key]: Boolean(v) }))}
-                />
-              </div>
-            ))}
+  async function copyValue(label: string, value: string | null | undefined) {
+    const v = (value ?? "").trim();
+    if (!v) {
+      toast.error(`No ${label} to copy.`);
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(v);
+      toast.success(`${label} copied.`);
+    } catch {
+      toast.error(`Could not copy ${label}.`);
+    }
+  }
+
+  function goalMissionStatus(goal: ClientGoalRow): "On Track" | "At Risk" | "Lagging" {
+    const key = resolveMetricColumnKey(goal.metric_target_column);
+    const target = Number(goal.target_value);
+    if (!key || !Number.isFinite(target) || target <= 0) return "Lagging";
+    const current = readMetricValue(metrics, key);
+    const p = metricProgress01(key, current, target);
+    if (p == null) return "Lagging";
+    if (p >= 0.85) return "On Track";
+    if (p >= 0.55) return "At Risk";
+    return "Lagging";
+  }
+
+  const majorMilestones = useMemo(
+    () =>
+      [...tasks]
+        .filter((t) => t.due_date != null && t.due_date.trim() !== "")
+        .sort((a, b) => String(a.due_date).localeCompare(String(b.due_date)))
+        .slice(0, 8),
+    [tasks],
+  );
+
+  function resetGoalForm() {
+    setGoalEditingId(null);
+    setGoalType("Acquisition");
+    setGoalTarget("");
+    setGoalMetricColumn("conversions");
+    setGoalIntent("");
+    setGoalEvidenceKeywords("");
+  }
+
+  function beginEditGoal(g: ClientGoalRow) {
+    setGoalEditingId(g.id);
+    setGoalType(g.goal_type);
+    setGoalTarget(String(g.target_value));
+    setGoalMetricColumn(g.metric_target_column);
+    setGoalIntent(g.intent_statement);
+    setGoalEvidenceKeywords((g.evidence_keywords ?? []).join(", "));
+    setManageGoalsOpen(true);
+  }
+
+  async function saveGoal() {
+    setGoalBusy(true);
+    try {
+      const payload = {
+        goal_type: goalType,
+        target_value: Number(goalTarget),
+        metric_target_column: goalMetricColumn.trim(),
+        intent_statement: goalIntent.trim(),
+        evidence_keywords: goalEvidenceKeywords
+          .split(",")
+          .map((x) => x.trim())
+          .filter((x) => x !== ""),
+      };
+      if (!Number.isFinite(payload.target_value) || payload.target_value <= 0) {
+        throw new Error("Target value must be a positive number.");
+      }
+      if (!payload.metric_target_column || !payload.intent_statement) {
+        throw new Error("Metric column and intent are required.");
+      }
+
+      const url = goalEditingId
+        ? `/api/clients/${client.id}/goals/${goalEditingId}`
+        : `/api/clients/${client.id}/goals`;
+      const method = goalEditingId ? "PATCH" : "POST";
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not save goal.");
+      const goal = data.goal as ClientGoalRow;
+      setGoals((prev) => {
+        const next = prev.filter((g) => g.id !== goal.id);
+        return [goal, ...next];
+      });
+      toast.success(goalEditingId ? "Goal updated." : "Goal added.");
+      resetGoalForm();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Goal save failed.");
+    } finally {
+      setGoalBusy(false);
+    }
+  }
+
+  async function completeGoal(goalId: string) {
+    try {
+      const res = await fetch(`/api/clients/${client.id}/goals/${goalId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "completed" }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not complete goal.");
+      const goal = data.goal as ClientGoalRow;
+      setGoals((prev) => prev.map((g) => (g.id === goal.id ? goal : g)));
+      toast.success("Goal marked completed.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Complete failed.");
+    }
+  }
+
+  async function generateStrategyRecommendation() {
+    setStrategyRecLoading(true);
+    try {
+      const res = await fetch(`/api/clients/${client.id}/strategy-recommendation`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Could not generate recommendation.");
+      setStrategyRecommendation(String(data.recommendation ?? ""));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Recommendation generation failed.");
+    } finally {
+      setStrategyRecLoading(false);
+    }
+  }
+
+  const connectionsSection = (
+    <div className="grid gap-4 xl:grid-cols-3">
+      <Card className="border-zinc-800 bg-zinc-900/90 ring-zinc-800">
+        <CardHeader>
+          <CardTitle className="text-zinc-100">Google Identity</CardTitle>
+          <CardDescription className="text-zinc-500">Platform IDs and web property mapping.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-1">
+            <Label htmlFor="cid" className="text-zinc-400">
+              Google Ads Customer ID
+            </Label>
+            <div className="flex gap-2">
+              <Input id="cid" className={fieldClass} placeholder="123-456-7890" value={adsId} onChange={(e) => setAdsId(e.target.value)} />
+              <Button type="button" variant="outline" size="sm" className="border-zinc-600" onClick={() => void copyValue("Google Ads Customer ID", adsId)}>
+                <Copy className="size-3.5" />
+              </Button>
+            </div>
           </div>
-        </div>
-      </div>
-      <Separator className="bg-zinc-800" />
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="grid gap-2">
-          <Label htmlFor="cid" className="text-zinc-400">
-            Google Ads Customer ID
-          </Label>
-          <Input
-            id="cid"
-            className={fieldClass}
-            placeholder="123-456-7890"
-            value={adsId}
-            onChange={(e) => setAdsId(e.target.value)}
-          />
-        </div>
-        <div className="grid gap-2">
-          <Label htmlFor="ga4" className="text-zinc-400">
-            GA4 Property ID
-          </Label>
-          <Input
-            id="ga4"
-            className={fieldClass}
-            placeholder="123456789"
-            value={ga4Id}
-            onChange={(e) => setGa4Id(e.target.value)}
-          />
-        </div>
-        <div className="grid gap-2 sm:col-span-2">
-          <Label htmlFor="gsc-site" className="text-zinc-400">
-            Search Console property URL
-          </Label>
-          <Input
-            id="gsc-site"
-            className={fieldClass}
-            placeholder="https://www.example.com/ or sc-domain:example.com"
-            value={searchConsoleUrl}
-            onChange={(e) => setSearchConsoleUrl(e.target.value)}
-          />
-          <p className="text-zinc-500 text-xs">
-            Same URL as the property in Google Search Console (not the sitemap file). Sync pulls the primary sitemap
-            from that property.
-          </p>
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-2">
-        <Button
-          type="button"
-          className="border-zinc-600 bg-zinc-800 text-zinc-100 hover:bg-zinc-700"
-          onClick={saveProfile}
-          disabled={savingProfile}
-        >
-          {savingProfile ? "Saving…" : "Save profile"}
+          <div className="grid gap-1">
+            <Label htmlFor="ga4" className="text-zinc-400">
+              GA4 Property ID
+            </Label>
+            <div className="flex gap-2">
+              <Input id="ga4" className={fieldClass} placeholder="123456789" value={ga4Id} onChange={(e) => setGa4Id(e.target.value)} />
+              <Button type="button" variant="outline" size="sm" className="border-zinc-600" onClick={() => void copyValue("GA4 Property ID", ga4Id)}>
+                <Copy className="size-3.5" />
+              </Button>
+            </div>
+            {ga4PropertyFormatHint ? <p className="text-amber-200/90 text-xs">{ga4PropertyFormatHint}</p> : null}
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="gbp-location" className="text-zinc-400">
+              GBP Location ID
+            </Label>
+            <div className="flex gap-2">
+              <Input
+                id="gbp-location"
+                className={fieldClass}
+                placeholder="accounts/123/locations/456"
+                value={client.gbp_location_id ?? ""}
+                disabled
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="border-zinc-600"
+                onClick={() => void copyValue("GBP Location ID", client.gbp_location_id)}
+              >
+                <Copy className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="gsc-site" className="text-zinc-400">
+              Search Console URL
+            </Label>
+            <Input
+              id="gsc-site"
+              className={fieldClass}
+              placeholder="https://www.example.com/ or sc-domain:example.com"
+              value={searchConsoleUrl}
+              onChange={(e) => setSearchConsoleUrl(e.target.value)}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-zinc-800 bg-zinc-900/90 ring-zinc-800">
+        <CardHeader>
+          <CardTitle className="text-zinc-100">Basecamp & Internal</CardTitle>
+          <CardDescription className="text-zinc-500">Ownership and communication linkage.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-1">
+            <Label className="text-zinc-400">Basecamp Project ID</Label>
+            <div className="flex gap-2">
+              <Input className={fieldClass} value={client.basecamp_project_id ?? ""} disabled />
+              <Button type="button" variant="outline" size="sm" className="border-zinc-600" onClick={() => void copyValue("Basecamp Project ID", client.basecamp_project_id)}>
+                <Copy className="size-3.5" />
+              </Button>
+            </div>
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="email_domain" className="text-zinc-400">
+              Email Domain
+            </Label>
+            <Input id="email_domain" className={fieldClass} placeholder="clientcompany.com" value={emailDomain} onChange={(e) => setEmailDomain(e.target.value)} />
+          </div>
+          <div className="grid gap-1">
+            <Label htmlFor="primary_strategist" className="text-zinc-400">
+              Primary Strategist
+            </Label>
+            <select
+              id="primary_strategist"
+              className={cn(fieldClass, "h-10 w-full rounded-md border px-3 text-sm")}
+              value={primaryStrategistId}
+              onChange={(e) => setPrimaryStrategistId(e.target.value)}
+            >
+              <option value="">— None —</option>
+              {staffOptions.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.full_name}
+                </option>
+              ))}
+            </select>
+            <p className="text-zinc-500 text-xs">Current: {selectedStrategistName}</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className="border-zinc-800 bg-zinc-900/90 ring-zinc-800">
+        <CardHeader>
+          <CardTitle className="text-zinc-100">Business Basics</CardTitle>
+          <CardDescription className="text-zinc-500">Identity and service scope used across modules.</CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          <div className="grid gap-1">
+            <Label className="text-zinc-400">Business Name</Label>
+            <Input className={fieldClass} value={client.business_name} disabled />
+          </div>
+          <div className="grid gap-1">
+            <Label className="text-zinc-400">Website URL</Label>
+            <Input className={fieldClass} value={client.website ?? ""} disabled />
+          </div>
+          <div className="grid gap-2">
+            <Label className="text-zinc-400">Services Toggle</Label>
+            <div className="border-zinc-800 bg-zinc-950/40 grid gap-3 rounded-lg border p-3">
+              {(
+                [
+                  ["seo", "SEO"],
+                  ["ppc", "PPC"],
+                  ["social", "Social"],
+                  ["orm", "ORM"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key} className="flex items-center justify-between gap-3">
+                  <span className="text-sm text-zinc-300">{label}</span>
+                  <Switch checked={svc[key]} onCheckedChange={(v) => setSvc((s) => ({ ...s, [key]: Boolean(v) }))} />
+                </div>
+              ))}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+      <div className="xl:col-span-3">
+        <Button type="button" className="border-zinc-600 bg-zinc-800 text-zinc-100 hover:bg-zinc-700" onClick={saveProfile} disabled={savingProfile}>
+          {savingProfile ? "Saving…" : "Save Connections"}
         </Button>
       </div>
     </div>
@@ -1084,11 +1307,14 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
           <TabsTrigger value="strategy" className={tabTriggerClass}>
             Strategy
           </TabsTrigger>
-          <TabsTrigger value="assets" className={tabTriggerClass}>
-            Assets
+          <TabsTrigger value="roadmap" className={tabTriggerClass}>
+            Roadmap
           </TabsTrigger>
-          <TabsTrigger value="settings" className={tabTriggerClass}>
-            Settings
+          <TabsTrigger value="connections" className={tabTriggerClass}>
+            Connections
+          </TabsTrigger>
+          <TabsTrigger value="communication" className={tabTriggerClass}>
+            Communication
           </TabsTrigger>
         </TabsList>
 
@@ -1109,6 +1335,12 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={`/dashboard/clients/${client.id}/reports/new`}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-zinc-600 bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-100 transition-colors hover:bg-zinc-800 sm:text-sm"
+                >
+                  New report
+                </a>
                 {adsLink ? (
                   <a
                     href={adsLink}
@@ -1503,8 +1735,8 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
             <WidgetShell icon={Search} title="SEO / Search Console">
               <p className="text-xs text-zinc-500">
                 Organic performance (last 30 days) and sitemap tools from Search Console. Set{" "}
-                <span className="font-medium text-zinc-400">Search Console property URL</span> under Settings →
-                Connections, then Sync metrics.
+                <span className="font-medium text-zinc-400">Search Console property URL</span> under Connections, then
+                Sync metrics.
               </p>
               <SeoSearchConsoleSitemapBlock client={client} metrics={metrics} />
             </WidgetShell>
@@ -1590,46 +1822,114 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
 
         <TabsContent value="strategy" className="mt-8 flex flex-col gap-6">
           <div className={cn(midnightCard, "space-y-4")}>
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Strategy & narrative</h2>
-                <p className="text-zinc-500 mt-1 text-sm">
-                  The <span className="font-medium text-zinc-400">Strategy Insight</span> box on Overview runs the same
-                  generate action. Use this tab for auction-level diagnostics.
-                </p>
+                <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Active Goals</h2>
+                <p className="text-zinc-500 mt-1 text-sm">Mission control for strategic outcomes and supporting evidence.</p>
               </div>
+              <Button type="button" variant="outline" className="border-zinc-600" onClick={() => setManageGoalsOpen(true)}>
+                Manage Goals
+              </Button>
+            </div>
+            {goals.filter((g) => g.status === "active").length === 0 ? (
+              <p className="text-zinc-500 text-sm">
+                No active goals. Use <span className="font-medium text-zinc-300">Manage Goals</span> to add one.
+              </p>
+            ) : (
+              <div className="grid gap-4 xl:grid-cols-2">
+                {goals
+                  .filter((g) => g.status === "active")
+                  .map((g) => (
+                    <GoalCard
+                      key={g.id}
+                      goal={g}
+                      metrics={metrics}
+                      communication={goalsCommunication}
+                      missionStatusLabel={goalMissionStatus(g)}
+                    />
+                  ))}
+              </div>
+            )}
+          </div>
+
+          <div className={cn(midnightCard, "space-y-3")}>
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Strategic Roadmap</h2>
+            <p className="text-zinc-500 text-sm">Major milestones from due-dated tasks.</p>
+            {majorMilestones.length === 0 ? (
+              <p className="text-zinc-500 text-sm">No milestones yet. Add due dates in Communication tasks.</p>
+            ) : (
+              <ol className="space-y-2">
+                {majorMilestones.map((m) => (
+                  <li key={m.id} className="border-zinc-800 bg-zinc-950/40 flex items-start gap-3 rounded-lg border p-3">
+                    <span className="text-zinc-400 min-w-[88px] text-xs font-mono">{m.due_date}</span>
+                    <span className="text-zinc-200 text-sm">{m.title}</span>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+
+          <div className={cn(midnightCard, "space-y-3")}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Opportunity & Analysis</h2>
               <Button
                 type="button"
                 variant="outline"
                 className="border-zinc-600 bg-transparent text-zinc-100 hover:bg-zinc-800"
-                disabled={aiLoading}
-                onClick={runAi}
+                disabled={strategyRecLoading}
+                onClick={() => void generateStrategyRecommendation()}
               >
-                {aiLoading ? "Generating…" : "Generate AI analysis"}
+                {strategyRecLoading ? "Generating…" : "Generate Strategic Recommendation"}
               </Button>
             </div>
-            <p className="text-zinc-500 text-xs">
-              Tip: keep the command center Overview open while generating so you can read the summary immediately.
+            <Textarea
+              className={cn(fieldClass, "min-h-[150px]")}
+              value={strategyRecommendation}
+              onChange={(e) => setStrategyRecommendation(e.target.value)}
+              placeholder="Anthony strategic recommendation will appear here…"
+            />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="roadmap" className="mt-8 grid gap-6">
+          <div className={cn(midnightCard, "space-y-2")}>
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Roadmap</h2>
+            <p className="text-zinc-500 text-sm">
+              Use Strategy for tactical mission control. This tab can hold longer-horizon planning artifacts.
+            </p>
+            <a
+              href={`/dashboard/clients/${client.id}/reports/new`}
+              className="inline-flex items-center gap-1.5 rounded-md border border-zinc-600 bg-transparent px-3 py-1.5 text-xs font-medium text-zinc-100 transition-colors hover:bg-zinc-800 sm:text-sm"
+            >
+              Open Report Builder
+            </a>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="connections" className="mt-8 grid gap-6">
+          {connectionsSection}
+        </TabsContent>
+
+        <TabsContent value="communication" className="mt-8 grid gap-6">
+          <div className={cn(midnightCard)}>
+            <h2 className="text-lg font-semibold tracking-tight text-zinc-50">AI Voice Profile</h2>
+            <p className="text-zinc-500 mt-1 text-sm">
+              Primary strategist voice used for communication-style guidance and AI wording.
+            </p>
+            <p className="text-zinc-300 mt-3 text-sm">
+              Primary strategist: <span className="font-medium text-zinc-100">{selectedStrategistName}</span>
+            </p>
+            <p className="text-zinc-500 mt-2 text-xs">
+              Manage tone and writing style in{" "}
+              <a className="text-sky-400 underline hover:text-sky-300" href="/dashboard/settings/team">
+                Settings → Team
+              </a>
+              .
             </p>
           </div>
-          <CompetitiveAnalysisPanel metrics={metrics} />
-        </TabsContent>
-
-        <TabsContent value="assets" className="mt-8 grid gap-6">
-          {profileSection}
-          {client.services ? (
-            <div className={cn(midnightCard)}>
-              <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Legacy services (import)</h2>
-              <p className="text-zinc-500 mt-1 text-sm">Free-text field from your original CSV.</p>
-              <p className="text-zinc-400 mt-4 text-sm whitespace-pre-wrap">{client.services}</p>
-            </div>
-          ) : null}
-        </TabsContent>
-
-        <TabsContent value="settings" className="mt-8 grid gap-6">
           <div className={cn(midnightCard, "flex flex-col gap-4")}>
             <div>
-              <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Tasks</h2>
+              <h2 className="text-lg font-semibold tracking-tight text-zinc-50">Communication Tasks</h2>
               <p className="text-zinc-500 mt-1 text-sm">Open work stays on this client until archived.</p>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
@@ -1726,6 +2026,111 @@ export function ClientDetailView({ client: initialClient, initialTasks, initialM
           </div>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={manageGoalsOpen} onOpenChange={setManageGoalsOpen}>
+        <DialogContent
+          showCloseButton
+          className="max-w-3xl border-zinc-800 bg-zinc-900 text-zinc-100 ring-zinc-700"
+        >
+          <DialogHeader>
+            <DialogTitle className="text-zinc-50">Manage Goals</DialogTitle>
+            <DialogDescription className="text-zinc-500">
+              Add, edit, and complete goals that power Strategy mission control.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="grid gap-4 lg:grid-cols-2">
+            <div className="space-y-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Existing Goals</p>
+              {goals.length === 0 ? (
+                <p className="text-zinc-500 text-sm">No goals yet.</p>
+              ) : (
+                goals.map((g) => (
+                  <div key={g.id} className="border-zinc-800 rounded-lg border bg-zinc-950/40 p-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-zinc-100 text-sm font-medium">{g.intent_statement}</p>
+                        <p className="text-zinc-500 mt-0.5 text-xs">
+                          {g.goal_type} · {g.metric_target_column} · target {g.target_value}
+                        </p>
+                      </div>
+                      <div className="flex shrink-0 gap-1">
+                        <Button type="button" size="sm" variant="outline" className="border-zinc-600 text-[11px]" onClick={() => beginEditGoal(g)}>
+                          Edit
+                        </Button>
+                        {g.status !== "completed" ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="border-zinc-600 text-[11px]"
+                            onClick={() => void completeGoal(g.id)}
+                          >
+                            Complete
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">
+                {goalEditingId ? "Edit Goal" : "Add Goal"}
+              </p>
+              <div className="grid gap-2">
+                <Label className="text-zinc-400">Goal Type</Label>
+                <select
+                  className={cn(fieldClass, "h-10 w-full rounded-md border px-3 text-sm")}
+                  value={goalType}
+                  onChange={(e) => setGoalType(e.target.value as ClientGoalType)}
+                >
+                  <option value="Acquisition">Acquisition</option>
+                  <option value="Efficiency">Efficiency</option>
+                  <option value="Awareness">Awareness</option>
+                  <option value="Retention">Retention</option>
+                </select>
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-zinc-400">Target Value</Label>
+                <Input className={fieldClass} placeholder="120" value={goalTarget} onChange={(e) => setGoalTarget(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-zinc-400">Target Metric Column</Label>
+                <Input
+                  className={fieldClass}
+                  placeholder="conversions or cpc"
+                  value={goalMetricColumn}
+                  onChange={(e) => setGoalMetricColumn(e.target.value)}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-zinc-400">Goal Intent</Label>
+                <Textarea className={cn(fieldClass, "min-h-[80px]")} value={goalIntent} onChange={(e) => setGoalIntent(e.target.value)} />
+              </div>
+              <div className="grid gap-2">
+                <Label className="text-zinc-400">Evidence Keywords (comma separated)</Label>
+                <Input
+                  className={fieldClass}
+                  placeholder="bidding, search, local"
+                  value={goalEvidenceKeywords}
+                  onChange={(e) => setGoalEvidenceKeywords(e.target.value)}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" className="border-zinc-600 bg-zinc-800 text-zinc-100 hover:bg-zinc-700" onClick={() => void saveGoal()} disabled={goalBusy}>
+                  {goalBusy ? "Saving…" : goalEditingId ? "Update goal" : "Add goal"}
+                </Button>
+                <Button type="button" variant="outline" className="border-zinc-600" onClick={resetGoalForm}>
+                  Reset
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

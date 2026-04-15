@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { rowHasBlockingIssues, type ClientImportPreviewRow } from "@/lib/client-import/schema";
+import {
+  looksLikeClientUuid,
+  rowHasBlockingIssues,
+  type ClientImportPreviewRow,
+} from "@/lib/client-import/schema";
 import { normalizeActiveServices } from "@/lib/active-services";
 import { getSupabaseAdmin } from "@/lib/supabase/admin";
 
@@ -105,6 +109,15 @@ async function findExistingClient(
   supabase: ReturnType<typeof getSupabaseAdmin>,
   row: ClientImportPreviewRow,
 ): Promise<{ client: DbClientRow | null; error?: string }> {
+  const idKey = row.client_id?.trim();
+  if (idKey && looksLikeClientUuid(idKey)) {
+    const { data: byId, error } = await supabase.from("clients").select("*").eq("id", idKey).maybeSingle();
+    if (error) throw error;
+    if (byId) {
+      return { client: byId as DbClientRow };
+    }
+  }
+
   const crm = row.internal_crm_id?.trim();
   if (crm) {
     const { data: crmRows, error } = await supabase.from("clients").select("*").eq("internal_crm_id", crm).limit(2);

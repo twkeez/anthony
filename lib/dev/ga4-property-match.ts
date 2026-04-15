@@ -1,3 +1,5 @@
+import { parseGa4PropertyId } from "@/lib/google/ga4-property-id";
+
 export type Ga4PropertyOption = {
   /** e.g. `properties/123456789` */
   resourceName: string;
@@ -36,12 +38,10 @@ export function hostnameFromWebsite(url: string | null | undefined): string | nu
   }
 }
 
-/** GA4 IDs in DB may be numeric or `properties/…`. */
+/** GA4 IDs in DB may be numeric or `properties/…`. UA / G- IDs return "". */
 export function normalizeGa4StoredId(raw: string | null | undefined): string {
-  if (raw == null || raw.trim() === "") return "";
-  const t = raw.trim();
-  const m = t.match(/^properties\/(\d+)$/i);
-  return m ? m[1] : t.replace(/\D/g, "") || t;
+  const p = parseGa4PropertyId(raw);
+  return p.ok ? p.numericId : "";
 }
 
 function tokenOverlap(a: string, b: string): number {
@@ -86,8 +86,54 @@ function scoreClientToProperty(client: ClientMapperRow, prop: Ga4PropertyOption)
 
 const MIN_SCORE = 42;
 
+/** Top candidates within this score band of the leader are treated as competing (ambiguous). */
+const DISCOVERY_AMBIGUITY_DELTA = 12;
+
+export type Ga4DiscoveryScored = { property: Ga4PropertyOption; score: number };
+
+export type Ga4DiscoveryResolution =
+  | { kind: "matched"; property: Ga4PropertyOption; score: number }
+  | { kind: "ambiguous"; candidates: Ga4DiscoveryScored[] }
+  | { kind: "none"; best: Ga4DiscoveryScored | null };
+
+/**
+ * Classifies a client against all GA4 properties: single high-confidence winner, several close
+ * scores (ambiguous), or nothing above the confidence floor.
+ */
+export function resolveGa4DiscoveryForClient(
+  client: ClientMapperRow,
+  properties: Ga4PropertyOption[],
+  options?: { minScore?: number; ambiguityDelta?: number },
+): Ga4DiscoveryResolution {
+  const minScore = options?.minScore ?? MIN_SCORE;
+  const ambiguityDelta = options?.ambiguityDelta ?? DISCOVERY_AMBIGUITY_DELTA;
+
+  if (properties.length === 0) {
+    return { kind: "none", best: null };
+  }
+
+  const scored: Ga4DiscoveryScored[] = properties.map((p) => ({
+    property: p,
+    score: scoreClientToProperty(client, p),
+  }));
+  scored.sort((a, b) => b.score - a.score);
+
+  const top = scored[0]!;
+  if (top.score < minScore) {
+    return { kind: "none", best: top };
+  }
+
+  const band = scored.filter((x) => x.score >= minScore && top.score - x.score <= ambiguityDelta);
+  if (band.length > 1) {
+    return { kind: "ambiguous", candidates: band };
+  }
+  return { kind: "matched", property: top.property, score: top.score };
+}
+
 /**
  * Picks the best GA4 property for a Supabase client using name + website heuristics.
+ * (Prefers a single winner even when runners-up are close; use {@link resolveGa4DiscoveryForClient}
+ * when ambiguous ties must be surfaced.)
  */
 export function suggestGa4Match(
   client: ClientMapperRow,

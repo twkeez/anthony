@@ -1,12 +1,20 @@
 import {
+  buildMessageBoardActivityTimeline,
+  buildUnansweredClientThreadsFromSnapshots,
   computeCommunicationResponsiveness,
+  filterMessageBoardSnapshotsRolling,
   type CommunicationAlertsState,
+  type CommunicationClassificationOpts,
   type CommunicationLastMessageSnapshot,
+  type CommunicationMessageBoardActivityItem,
   type CommunicationTodoItem,
+  type UnansweredClientThreadSnapshot,
 } from "@/lib/agency-hub/communication-alerts";
+import { loadCommunicationInternalPartiesForClassification } from "@/lib/communication/load-internal-parties-for-classification";
+import { loadActiveStaffForClassification } from "@/lib/staff/load-active-for-classification";
 import {
   collectOverdueTodosFromProjectTodoLists,
-  fetchProjectLatestMessageBoardTopic,
+  fetchProjectMessageBoardTopicSnapshots,
   fetchProjectTodoLists,
   type NormalizedOverdueTodo,
 } from "@/lib/basecamp/basecamp-api";
@@ -24,9 +32,10 @@ function monthStartDate(d = new Date()) {
 const BASECAMP_PROJECT_FETCH_CONCURRENCY = 5;
 
 /**
- * When `last_updater.email_address` is present, internal senders are detected by `@beyond` domain
- * (see `isBeyondInternalEmail`). Otherwise agency staff are matched via comma-separated
- * `AGENCY_TEAM_NAMES` / `AGENCY_TEAM_IDS` in `.env.local`.
+ * When `last_updater.email_address` is present, internal senders are matched to active `staff.email`,
+ * manual `communication_internal_parties`, then `@beyond` domain (see `isBeyondInternalEmail`), else external.
+ * Without email, active staff id/handle/name plus internal parties and legacy env lists apply.
+ * Message-board topics are limited to a rolling window (see `filterMessageBoardSnapshotsRolling`).
  */
 function parseCommaSeparatedEnv(raw: string | undefined): string[] {
   if (raw == null || raw.trim() === "") return [];
@@ -49,6 +58,9 @@ const AGENCY_TEAM_IDS: string[] = [
 function buildCommunicationAlerts(
   todos: NormalizedOverdueTodo[],
   lastMessage: CommunicationLastMessageSnapshot | null,
+  unansweredClientThreads: UnansweredClientThreadSnapshot[],
+  classification: CommunicationClassificationOpts,
+  messageBoardActivity: CommunicationMessageBoardActivityItem[],
 ): CommunicationAlertsState {
   const syncedAt = new Date().toISOString();
   const {
@@ -57,7 +69,12 @@ function buildCommunicationAlerts(
     lastMessageAuthor,
     last_internal_reply_at,
     is_internal_author,
-  } = computeCommunicationResponsiveness(lastMessage, AGENCY_TEAM_NAMES, AGENCY_TEAM_IDS);
+  } = computeCommunicationResponsiveness(lastMessage, classification);
+
+  const threadsPayload =
+    unansweredClientThreads.length > 0 ? { unansweredClientThreads } : ({} as Record<string, never>);
+  const activityPayload =
+    messageBoardActivity.length > 0 ? { messageBoardActivity } : ({} as Record<string, never>);
 
   const overdueCount = todos.length;
   if (overdueCount === 0) {
@@ -73,6 +90,8 @@ function buildCommunicationAlerts(
       lastMessageAuthor,
       last_internal_reply_at,
       is_internal_author,
+      ...threadsPayload,
+      ...activityPayload,
     };
   }
 
@@ -99,6 +118,8 @@ function buildCommunicationAlerts(
     lastMessageAuthor,
     last_internal_reply_at,
     is_internal_author,
+    ...threadsPayload,
+    ...activityPayload,
   };
 }
 
@@ -163,19 +184,43 @@ export async function syncCommunicationAlertsFromBasecamp(): Promise<SyncCommuni
 
   const now = new Date().toISOString();
 
-  const emptyPayload = buildCommunicationAlerts([], null);
+  const [staffRows, extraInternalParties] = await Promise.all([
+    loadActiveStaffForClassification(),
+    loadCommunicationInternalPartiesForClassification(),
+  ]);
+  const classification: CommunicationClassificationOpts = {
+    staff: staffRows,
+    extraInternalParties,
+    agencyTeamNames: AGENCY_TEAM_NAMES,
+    agencyTeamIds: AGENCY_TEAM_IDS,
+  };
+
+  const emptyPayload = buildCommunicationAlerts([], null, [], classification, []);
 
   const updates = await mapInBatches(withProject, BASECAMP_PROJECT_FETCH_CONCURRENCY, async (c) => {
     const clientId = String(c.id);
     const pid = String(c.basecamp_project_id ?? "").trim();
     const displayName = (c.business_name ?? "").trim() || undefined;
 
-    const [lists, lastMessage] = await Promise.all([
+    const [lists, topicSnapshotsRaw] = await Promise.all([
       fetchProjectTodoLists(pid),
-      fetchProjectLatestMessageBoardTopic(pid),
+      fetchProjectMessageBoardTopicSnapshots(pid),
     ]);
+    const topicSnapshots = filterMessageBoardSnapshotsRolling(topicSnapshotsRaw);
     const todos = await collectOverdueTodosFromProjectTodoLists(pid, lists, displayName);
-    const payload = buildCommunicationAlerts(todos, lastMessage);
+    const lastMessage = topicSnapshots.length > 0 ? topicSnapshots[0] : null;
+    const unansweredClientThreads = buildUnansweredClientThreadsFromSnapshots(
+      topicSnapshots,
+      classification,
+    );
+    const messageBoardActivity = buildMessageBoardActivityTimeline(topicSnapshots, classification);
+    const payload = buildCommunicationAlerts(
+      todos,
+      lastMessage,
+      unansweredClientThreads,
+      classification,
+      messageBoardActivity,
+    );
     return { clientId, payload };
   });
 
@@ -186,20 +231,31 @@ export async function syncCommunicationAlertsFromBasecamp(): Promise<SyncCommuni
   let clientsUpdated = 0;
   for (const c of rows) {
     const clientId = String(c.id);
-    if (!metricClientIds.has(clientId)) continue;
-
     const hasBc = (c.basecamp_project_id ?? "").trim() !== "";
     const payload = hasBc ? (payloadByClientId.get(clientId) ?? emptyPayload) : emptyPayload;
 
-    const { error: uErr } = await supabase
-      .from("client_metrics")
-      .update({ communication_alerts: payload, updated_at: now })
-      .eq("client_id", clientId)
-      .eq("metric_month", metricMonth);
+    if (metricClientIds.has(clientId)) {
+      const { error: uErr } = await supabase
+        .from("client_metrics")
+        .update({ communication_alerts: payload, updated_at: now })
+        .eq("client_id", clientId)
+        .eq("metric_month", metricMonth);
 
-    if (uErr) {
-      console.error("[communication sync] update", clientId, uErr);
-      continue;
+      if (uErr) {
+        console.error("[communication sync] update", clientId, uErr);
+        continue;
+      }
+    } else {
+      const { error: iErr } = await supabase.from("client_metrics").insert({
+        client_id: clientId,
+        metric_month: metricMonth,
+        communication_alerts: payload,
+        updated_at: now,
+      });
+      if (iErr) {
+        console.error("[communication sync] insert client_metrics (no row for month yet)", clientId, iErr);
+        continue;
+      }
     }
     clientsUpdated += 1;
   }

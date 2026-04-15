@@ -32,6 +32,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { compactGa4PropertyIdIssue } from "@/lib/google/ga4-property-id";
 import { cn } from "@/lib/utils";
 
 const glass = "rounded-xl border border-zinc-800 bg-zinc-900/90 shadow-sm";
@@ -284,6 +285,7 @@ export function Ga4CommandCenter({ initialRows }: { initialRows: Ga4CommandCente
               sortedRows.map((row) => {
                 const health = calculateGa4AccountStatus(row.client, row.ga4_alerts, rules, rowGa4Metrics(row));
                 const badges = activeGa4AlertBadges(row.ga4_alerts, rules);
+                const ga4IdIssue = compactGa4PropertyIdIssue(row.client.ga4_property_id);
                 return (
                   <TableRow key={row.client.id} className="border-zinc-800 hover:bg-zinc-950/50">
                     <TableCell>
@@ -297,11 +299,19 @@ export function Ga4CommandCenter({ initialRows }: { initialRows: Ga4CommandCente
                         {row.client.business_name}
                       </Link>
                     </TableCell>
-                    <TableCell className="max-w-[160px]">
+                    <TableCell className="max-w-[200px]">
                       {row.client.ga4_property_id?.trim() ? (
-                        <code className="block truncate text-xs text-zinc-300" title={row.client.ga4_property_id.trim()}>
-                          {row.client.ga4_property_id.trim()}
-                        </code>
+                        <div className="min-w-0">
+                          <code
+                            className="block truncate text-xs text-zinc-300"
+                            title={row.client.ga4_property_id.trim()}
+                          >
+                            {row.client.ga4_property_id.trim()}
+                          </code>
+                          {ga4IdIssue ? (
+                            <p className="mt-1 text-[10px] leading-snug text-amber-200/85">{ga4IdIssue}</p>
+                          ) : null}
+                        </div>
                       ) : (
                         <span className="text-zinc-600 text-xs">—</span>
                       )}

@@ -9,6 +9,6 @@ export const metadata: Metadata = {
 };
 
 export default async function CommunicationCommandCenterPage() {
-  const { rows } = await fetchCommunicationCommandCenterData();
-  return <CommunicationCommandCenter initialRows={rows} />;
+  const { rows, triage } = await fetchCommunicationCommandCenterData();
+  return <CommunicationCommandCenter initialRows={rows} initialTriage={triage} />;
 }

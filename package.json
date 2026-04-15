@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "import:clients": "node scripts/import-clients.mjs"
+    "import:clients": "node scripts/import-clients.mjs",
+    "discover:ga4-ids": "tsx scripts/discover-ga4-ids.ts",
+    "sync:gbp-reviews": "tsx scripts/sync-gbp-reviews.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.3.0",
@@ -37,6 +39,7 @@
     "@types/react-dom": "^19",
     "csv-parse": "^6.2.1",
     "dotenv": "^17.4.1",
+    "tsx": "^4.20.5",
     "eslint": "^9",
     "eslint-config-next": "16.2.3",
     "tailwindcss": "^4",

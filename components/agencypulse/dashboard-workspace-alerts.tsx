@@ -8,6 +8,7 @@ import { DashboardKpiStatGrid } from "@/components/agencypulse/dashboard-kpi-sta
 import { DashboardNextBestActions } from "@/components/agencypulse/dashboard-next-best-actions";
 import { Button } from "@/components/ui/button";
 import type { HubAlertsBundle } from "@/lib/agency-hub/alerts";
+import { DashboardUnansweredMessagesSection } from "@/components/agencypulse/dashboard-unanswered-messages";
 import { useDashboardSync } from "@/lib/context/dashboard-sync-context";
 import {
   collectClientIdsFromBundle,
@@ -68,6 +69,7 @@ export function DashboardWorkspaceAlerts() {
   const lighthouse = bundle?.lighthouse.filter((r) => r.type === "lighthouse") ?? [];
   const commActions = bundle?.communicationActionItems.filter((r) => r.type === "communication_action") ?? [];
   const comm = bundle?.communication.filter((r) => r.type === "communication") ?? [];
+  const unansweredMessages = bundle?.unansweredClientMessages ?? [];
 
   return (
     <div className="flex flex-col gap-8">
@@ -107,6 +109,8 @@ export function DashboardWorkspaceAlerts() {
       <DashboardKpiStatGrid kpis={kpis} loading={loading && !kpis} />
 
       <DashboardNextBestActions items={nextBest} />
+
+      <DashboardUnansweredMessagesSection rows={unansweredMessages} clientById={clientById} />
 
       <div className="flex flex-col gap-8">
         <DashboardHubAlertListSection

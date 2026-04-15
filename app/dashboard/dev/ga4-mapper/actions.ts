@@ -22,7 +22,7 @@ export async function fetchGa4PropertiesForMapperAction(): Promise<{
   assertGa4MapperAllowed();
 
   const accessToken = await getGoogleAccessTokenFromRefresh();
-  const properties = await listAllGa4PropertiesForAgency(accessToken);
+  const { properties } = await listAllGa4PropertiesForAgency(accessToken);
 
   const supabase = getSupabaseAdmin();
   const { data: clientRows, error } = await supabase

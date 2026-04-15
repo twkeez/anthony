@@ -1,11 +1,13 @@
 /**
  * Client CSV import — columns match `public/client_import_template.csv` (plus common aliases).
- * Aliases include `business_name` → client, `google_ads_customer_id` / `google ads customer id` → Ads ID,
- * `ga_property_id` / `ga4 property id` → GA4, `crm_id` → internal_crm_id.
+ * Aliases include `business_name` / `client name`, `google_ads_customer_id` / `google ads customer id` → Ads ID,
+ * `ga_property_id` / `ga4 property id` → GA4, `crm_id` / `internal crm id` → internal_crm_id,
+ * `service ppc` / `service seo` (spaced headers from Excel/Sheets).
  * Empty cells mean “do not change” on merge for existing clients (see `csvCellPresent`).
  */
 
 export type CsvCellPresent = {
+  client_id: boolean;
   internal_crm_id: boolean;
   service_ppc: boolean;
   service_seo: boolean;
@@ -22,6 +24,8 @@ export type CsvCellPresent = {
 };
 
 export type ClientImportCsvRow = {
+  /** Anthony `clients.id` (UUID) — strongest match for bulk updates from exports. */
+  client_id: string | null;
   client_name: string;
   internal_crm_id: string | null;
   service_ppc: boolean;
@@ -100,13 +104,30 @@ function presentAny(r: Record<string, unknown>, keys: string[]): boolean {
   return keys.some((k) => cellPresent(r[k]));
 }
 
+/** True if `s` looks like a Supabase/Postgres UUID (client primary key). */
+export function looksLikeClientUuid(s: string | null | undefined): boolean {
+  if (s == null) return false;
+  const t = String(s).trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(t);
+}
+
 export function rawRecordToImportRow(row: Record<string, unknown>, rowIndex: number): ClientImportPreviewRow {
   const r = lowerKeyRecord(row);
 
+  const client_id =
+    firstString(r, ["client_id", "anthony_client_id", "agencypulse_client_id", "client uuid"]) ?? null;
+
   const client_name =
-    firstString(r, ["client_name", "business_name", "client", "company"]) ?? "";
+    firstString(r, ["client_name", "client name", "business_name", "business name", "client", "company"]) ?? "";
   const internal_crm_id =
-    firstString(r, ["internal_crm_id", "crm_id", "crm", "hubspot_id", "salesforce_id"]) ?? null;
+    firstString(r, [
+      "internal_crm_id",
+      "internal crm id",
+      "crm_id",
+      "crm",
+      "hubspot_id",
+      "salesforce_id",
+    ]) ?? null;
 
   const googleAdsKeys = [
     "google_ads_id",
@@ -114,51 +135,81 @@ export function rawRecordToImportRow(row: Record<string, unknown>, rowIndex: num
     "ads_customer_id",
     "google ads customer id",
     "google ads id",
+    "google ads cid",
+    "gads_customer_id",
+    "gads cid",
+    "ads id",
+    "ads customer id",
+    "google ads account",
+    "google ads account id",
   ];
-  const ga4Keys = ["ga4_property_id", "ga_property_id", "ga4_id", "analytics_property_id", "ga4 property id"];
+  const ga4Keys = [
+    "ga4_property_id",
+    "ga_property_id",
+    "ga4_id",
+    "analytics_property_id",
+    "ga4 property id",
+    "ga4 property",
+    "ga4 numeric id",
+    "ga property",
+    "analytics property",
+  ];
 
   const csvCellPresent: CsvCellPresent = {
-    internal_crm_id: presentAny(r, ["internal_crm_id", "crm_id", "crm", "hubspot_id", "salesforce_id"]),
-    service_ppc: cellPresent(r.service_ppc),
-    service_seo: cellPresent(r.service_seo),
-    monthly_ad_budget: cellPresent(r.monthly_ad_budget),
-    target_cpa: cellPresent(r.target_cpa),
+    client_id: presentAny(r, ["client_id", "anthony_client_id", "agencypulse_client_id", "client uuid"]),
+    internal_crm_id: presentAny(r, [
+      "internal_crm_id",
+      "internal crm id",
+      "crm_id",
+      "crm",
+      "hubspot_id",
+      "salesforce_id",
+    ]),
+    service_ppc: presentAny(r, ["service_ppc", "service ppc", "ppc"]),
+    service_seo: presentAny(r, ["service_seo", "service seo", "seo"]),
+    monthly_ad_budget: presentAny(r, ["monthly_ad_budget", "monthly ad budget"]),
+    target_cpa: presentAny(r, ["target_cpa", "target cpa"]),
     google_ads_id: presentAny(r, googleAdsKeys),
     ga4_property_id: presentAny(r, ga4Keys),
-    search_console_url: cellPresent(r.search_console_url),
-    tag_manager_id: cellPresent(r.tag_manager_id),
-    gbp_location_id: cellPresent(r.gbp_location_id),
-    email_domain: cellPresent(r.email_domain),
-    basecamp_project_id: cellPresent(r.basecamp_project_id),
-    basecamp_email: cellPresent(r.basecamp_email),
+    search_console_url: presentAny(r, ["search_console_url", "search console url", "gsc url"]),
+    tag_manager_id: presentAny(r, ["tag_manager_id", "tag manager id", "gtm id"]),
+    gbp_location_id: presentAny(r, ["gbp_location_id", "gbp location id", "google business profile"]),
+    email_domain: presentAny(r, ["email_domain", "email domain"]),
+    basecamp_project_id: presentAny(r, ["basecamp_project_id", "basecamp project id"]),
+    basecamp_email: presentAny(r, ["basecamp_email", "basecamp email"]),
   };
 
-  const service_ppc = parseBoolCell(String(r.service_ppc ?? ""));
-  const service_seo = parseBoolCell(String(r.service_seo ?? ""));
-  const monthly_ad_budget = parseNumberCell(String(r.monthly_ad_budget ?? ""));
-  const target_cpa = parseNumberCell(String(r.target_cpa ?? ""));
+  const service_ppc = parseBoolCell(firstString(r, ["service_ppc", "service ppc", "ppc"]) ?? "");
+  const service_seo = parseBoolCell(firstString(r, ["service_seo", "service seo", "seo"]) ?? "");
+  const monthly_ad_budget = parseNumberCell(firstString(r, ["monthly_ad_budget", "monthly ad budget"]) ?? "");
+  const target_cpa = parseNumberCell(firstString(r, ["target_cpa", "target cpa"]) ?? "");
   const google_ads_id = firstString(r, googleAdsKeys);
   const ga4_property_id = firstString(r, ga4Keys);
-  const search_console_url = trimOrNull(String(r.search_console_url ?? ""));
-  const tag_manager_id = trimOrNull(String(r.tag_manager_id ?? ""));
-  const gbp_location_id = trimOrNull(String(r.gbp_location_id ?? ""));
-  const email_domain = trimOrNull(String(r.email_domain ?? ""));
-  const basecamp_project_id = trimOrNull(String(r.basecamp_project_id ?? ""));
-  const basecamp_email = trimOrNull(String(r.basecamp_email ?? ""));
+  const search_console_url = trimOrNull(firstString(r, ["search_console_url", "search console url", "gsc url"]) ?? "");
+  const tag_manager_id = trimOrNull(firstString(r, ["tag_manager_id", "tag manager id", "gtm id"]) ?? "");
+  const gbp_location_id = trimOrNull(firstString(r, ["gbp_location_id", "gbp location id", "google business profile"]) ?? "");
+  const email_domain = trimOrNull(firstString(r, ["email_domain", "email domain"]) ?? "");
+  const basecamp_project_id = trimOrNull(
+    firstString(r, ["basecamp_project_id", "basecamp project id"]) ?? "",
+  );
+  const basecamp_email = trimOrNull(firstString(r, ["basecamp_email", "basecamp email"]) ?? "");
 
   const issues: ClientImportRowIssue[] = [];
-  const hasIdentity = Boolean(client_name.trim() || internal_crm_id?.trim());
+  const hasIdentity = Boolean(
+    client_name.trim() || internal_crm_id?.trim() || (client_id?.trim() && looksLikeClientUuid(client_id)),
+  );
   if (!hasIdentity) {
     issues.push({
       code: "missing_client_name",
-      message: "Provide client_name (or business_name) and/or internal_crm_id.",
+      message:
+        "Provide client_name (or business_name), internal_crm_id, and/or client_id (Anthony UUID from exports).",
     });
   }
-  if (internal_crm_id?.trim() && !client_name.trim()) {
+  if (internal_crm_id?.trim() && !client_name.trim() && !looksLikeClientUuid(client_id)) {
     issues.push({
       code: "crm_only_new_client",
       message:
-        "No client_name — row can only update an existing client matched by internal_crm_id (cannot create a new client without a name).",
+        "No client_name — row can only update an existing client matched by internal_crm_id or client_id (cannot create a new client without a name).",
     });
   }
   if (service_ppc && !google_ads_id) {
@@ -170,6 +221,7 @@ export function rawRecordToImportRow(row: Record<string, unknown>, rowIndex: num
 
   return {
     rowIndex,
+    client_id,
     client_name,
     internal_crm_id,
     service_ppc,

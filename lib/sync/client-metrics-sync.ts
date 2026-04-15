@@ -3,6 +3,7 @@ import { getGoogleAccessTokenFromRefresh } from "@/lib/google/access-token";
 import { fetchAdsMonthTotals } from "@/lib/google/ads-metrics";
 import { fetchGoogleAdsAlertsFromGaql } from "@/lib/google/google-ads";
 import { fetchGa4SyncBundle } from "@/lib/google/ga4";
+import { ga4PropertyIdSyncHint, parseGa4PropertyId } from "@/lib/google/ga4-property-id";
 import { fetchGscSearchAnalyticsSnapshot } from "@/lib/google/gsc-search-analytics";
 import { fetchGscSitemapSnapshot } from "@/lib/google/gsc-sitemaps";
 import { isSearchConsoleAccessDenied } from "@/lib/google/gsc-api-errors";
@@ -231,10 +232,21 @@ export async function syncClientMetrics(
 
   if (runGa4Scope(scope)) {
   if (client.ga4_property_id?.trim()) {
+    const ga4Parsed = parseGa4PropertyId(client.ga4_property_id);
+    if (!ga4Parsed.ok) {
+      errors.push(ga4PropertyIdSyncHint(ga4Parsed));
+      ga4_sessions = existingRow?.ga4_sessions ?? null;
+      ga4_key_events = existingRow?.ga4_key_events ?? null;
+      ga4_engagement_rate =
+        existingRow?.ga4_engagement_rate != null && Number.isFinite(Number(existingRow.ga4_engagement_rate))
+          ? Number(existingRow.ga4_engagement_rate)
+          : null;
+      ga4_alerts = parseGa4AlertsJson(existingRow?.ga4_alerts as unknown);
+    } else {
     try {
       const ga = await fetchGa4SyncBundle({
         accessToken: access,
-        propertyId: client.ga4_property_id.trim(),
+        propertyId: ga4Parsed.numericId,
       });
       ga4_sessions = ga.ga4_sessions != null ? finiteOrNull(ga.ga4_sessions) : null;
       ga4_key_events = ga.ga4_key_events != null ? finiteOrNull(ga.ga4_key_events) : null;
@@ -264,6 +276,7 @@ export async function syncClientMetrics(
           ? Number(existingRow.ga4_engagement_rate)
           : null;
       ga4_alerts = parseGa4AlertsJson(existingRow?.ga4_alerts as unknown);
+    }
     }
   } else {
     errors.push("GA4: no GA4 Property ID saved for this client.");

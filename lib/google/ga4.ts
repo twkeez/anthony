@@ -3,7 +3,24 @@ import { EMPTY_GA4_ALERTS } from "@/lib/agency-hub/ga4-analytics-status";
 
 type Ga4ReportResponse = {
   totals?: Array<{ metricValues?: Array<{ value?: string }> }>;
+  rows?: Array<{ metricValues?: Array<{ value?: string }> }>;
 };
+
+/**
+ * GA4 `runReport` only fills `totals` when metric aggregations are requested; for typical
+ * date-range + metrics queries the aggregate is in `rows[0]` (often a single row).
+ */
+function readMetricTotals(data: Ga4ReportResponse): number[] {
+  const fromTotals = data.totals?.[0]?.metricValues;
+  if (fromTotals && fromTotals.length > 0) {
+    return fromTotals.map((m) => Number(m.value ?? NaN));
+  }
+  const fromRow = data.rows?.[0]?.metricValues;
+  if (fromRow && fromRow.length > 0) {
+    return fromRow.map((m) => Number(m.value ?? NaN));
+  }
+  return [];
+}
 
 function propertyPath(propertyId: string): string {
   const n = propertyId.replace(/^properties\//, "").trim();
@@ -29,10 +46,6 @@ async function runReport(
     return { ok: false, err: `GA4 Data API ${res.status}: ${t.slice(0, 240)}` };
   }
   return { ok: true, data: (await res.json()) as Ga4ReportResponse };
-}
-
-function readMetricTotals(data: Ga4ReportResponse): number[] {
-  return (data.totals?.[0]?.metricValues ?? []).map((m) => Number(m.value ?? NaN));
 }
 
 function ymdUtc(d: Date): string {

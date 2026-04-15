@@ -43,6 +43,11 @@ export async function PATCH(request: NextRequest, context: Ctx) {
     if (typeof body.search_console_url === "string" || body.search_console_url === null) {
       patch.search_console_url = body.search_console_url;
     }
+    if (body.primary_strategist_id === null || typeof body.primary_strategist_id === "string") {
+      const raw = body.primary_strategist_id;
+      patch.primary_strategist_id =
+        raw === null || String(raw).trim() === "" ? null : String(raw).trim();
+    }
 
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "no_valid_fields" }, { status: 400 });

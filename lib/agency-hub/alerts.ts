@@ -8,6 +8,7 @@ import {
 import {
   hasActiveCommunicationAlert,
   parseCommunicationAlertsJson,
+  type CommunicationActionability,
   type CommunicationAlertsState,
 } from "@/lib/agency-hub/communication-alerts";
 import { parseGa4AlertsJson, type Ga4AlertsState } from "@/lib/agency-hub/ga4-analytics-status";
@@ -47,6 +48,21 @@ export type HubAlertItem = {
   communicationLastAuthor?: string | null;
   /** True when the last board post was from an internal (@beyond / team) user. */
   communicationLastAuthorIsInternal?: boolean;
+};
+
+/** Flattened client message-board threads awaiting team (from `unansweredClientThreads`). */
+export type UnansweredClientMessageRow = {
+  id: string;
+  clientId: string;
+  businessName: string;
+  subject: string;
+  excerpt: string;
+  daysWaiting: number;
+  updatedAt: string;
+  webUrl?: string;
+  actionability: CommunicationActionability;
+  suggestedAction: string;
+  authorName?: string;
 };
 
 function metricMonthStartUtc(d = new Date()) {
@@ -474,6 +490,78 @@ export async function fetchHubCommunicationActionItems(opts?: { signal?: AbortSi
 }
 
 /**
+ * Client-authored message board threads with no team reply yet (from `communication_alerts.unansweredClientThreads`).
+ * Sorted by most recent `updatedAt` first (matches communication command center inbox).
+ */
+export async function fetchHubUnansweredClientMessages(opts?: { signal?: AbortSignal }): Promise<
+  UnansweredClientMessageRow[]
+> {
+  if (opts?.signal?.aborted) {
+    throw opts.signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
+
+  const supabase = createSupabasePublicClient();
+  const month = metricMonthStartUtc();
+
+  const { data: metricRows, error: mErr } = await supabase
+    .from("client_metrics")
+    .select("client_id, communication_alerts")
+    .eq("metric_month", month);
+
+  if (mErr) throw new Error(mErr.message);
+
+  const pending: { clientId: string; threads: NonNullable<CommunicationAlertsState["unansweredClientThreads"]> }[] =
+    [];
+  for (const row of metricRows ?? []) {
+    const r = row as { client_id: string; communication_alerts: unknown };
+    if (r.communication_alerts == null) continue;
+    const parsed = parseCommunicationAlertsJson(r.communication_alerts);
+    const threads = parsed?.unansweredClientThreads;
+    if (!threads || threads.length === 0) continue;
+    pending.push({ clientId: String(r.client_id), threads });
+  }
+
+  if (pending.length === 0) return [];
+
+  const ids = [...new Set(pending.map((p) => p.clientId))];
+  const { data: clientRows, error: cErr } = await supabase.from("clients").select("id, business_name").in("id", ids);
+  if (cErr) throw new Error(cErr.message);
+
+  const names = new Map<string, string>();
+  for (const row of clientRows ?? []) {
+    const r = row as { id: string; business_name: string | null };
+    names.set(String(r.id), (r.business_name ?? "Client").trim() || "Client");
+  }
+
+  const out: UnansweredClientMessageRow[] = [];
+  for (const { clientId, threads } of pending) {
+    const businessName = names.get(clientId) ?? "Client";
+    threads.forEach((t, idx) => {
+      out.push({
+        id: `${clientId}-unanswered-${idx}-${t.updatedAt}`,
+        clientId,
+        businessName,
+        subject: t.subject,
+        excerpt: t.excerpt,
+        daysWaiting: t.daysWaiting,
+        updatedAt: t.updatedAt,
+        ...(t.webUrl ? { webUrl: t.webUrl } : {}),
+        actionability: t.actionability,
+        suggestedAction: t.suggestedAction,
+        ...(t.authorName ? { authorName: t.authorName } : {}),
+      });
+    });
+  }
+
+  out.sort((a, b) => {
+    const ta = new Date(a.updatedAt).getTime();
+    const tb = new Date(b.updatedAt).getTime();
+    return (Number.isFinite(tb) ? tb : 0) - (Number.isFinite(ta) ? ta : 0);
+  });
+  return out;
+}
+
+/**
  * PageSpeed / Lighthouse: clients with a `website` URL and either a PSI error string or
  * performance score below `app_thresholds.rules.min_performance_score` (default 50).
  */
@@ -571,13 +659,14 @@ export type HubAlertsBundle = {
   lighthouse: HubAlertItem[];
   communication: HubAlertItem[];
   communicationActionItems: HubAlertItem[];
+  unansweredClientMessages: UnansweredClientMessageRow[];
 };
 
 /**
  * Loads hub alerts: Ads, SEO, GA4, Lighthouse / PageSpeed, Basecamp communication (overdue tasks), and communication action items.
  */
 export async function fetchHubAlerts(opts?: { signal?: AbortSignal }): Promise<HubAlertsBundle> {
-  const [accountAds, accountSeo, accountGa4, lighthouse, communication, communicationActionItems] =
+  const [accountAds, accountSeo, accountGa4, lighthouse, communication, communicationActionItems, unansweredClientMessages] =
     await Promise.all([
       fetchHubGoogleAdsAccountAlerts(opts),
       fetchHubSitemapSeoAlerts(opts),
@@ -585,6 +674,7 @@ export async function fetchHubAlerts(opts?: { signal?: AbortSignal }): Promise<H
       fetchHubLighthouseAlerts(opts),
       fetchHubCommunicationAlerts(opts),
       fetchHubCommunicationActionItems(opts),
+      fetchHubUnansweredClientMessages(opts),
     ]);
   return {
     accountAds,
@@ -593,5 +683,6 @@ export async function fetchHubAlerts(opts?: { signal?: AbortSignal }): Promise<H
     lighthouse,
     communication,
     communicationActionItems,
+    unansweredClientMessages,
   };
 }
